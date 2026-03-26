@@ -207,20 +207,28 @@ class UserBot:
             if trader.holding:
                 buy_price_snapshot = trader.buy_price
                 buy_date_snapshot = trader.buy_date
+                # 매도 전 잔고 확인 (매도 후에는 0이 됨)
+                coin_bal = await asyncio.to_thread(self.api.get_balance, ticker) or 0
+                sell_amount = coin_bal * price
+
                 sold = await asyncio.to_thread(trader.check_and_sell, price)
                 if sold:
-                    pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100
-                    now_date = datetime.now(KST).date()
-                    reason = "NEXT_DAY" if buy_date_snapshot and now_date > buy_date_snapshot else "STOP_LOSS"
-                    # 매도 금액 계산
-                    coin_bal = await asyncio.to_thread(self.api.get_balance, ticker)
-                    sell_amount = (coin_bal or 0) * price
+                    pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100 if buy_price_snapshot > 0 else 0
                     pnl_krw = sell_amount * pnl_pct / 100
+
+                    from datetime import timezone as tz, timedelta as td
+                    trading_date = datetime.now(timezone(timedelta(hours=9)))
+                    if trading_date.hour < 9:
+                        trading_date_d = (trading_date - timedelta(days=1)).date()
+                    else:
+                        trading_date_d = trading_date.date()
+                    reason = "NEXT_DAY" if buy_date_snapshot and trading_date_d > buy_date_snapshot else "STOP_LOSS"
+
                     await insert_trade(self.user_id, {
                         "timestamp": datetime.now(KST).isoformat(),
                         "side": "SELL", "ticker": ticker, "price": price,
                         "amount_krw": round(sell_amount, 0),
-                        "volume": coin_bal or 0,
+                        "volume": coin_bal,
                         "reason": reason,
                         "pnl_pct": round(pnl_pct, 2),
                         "pnl_krw": round(pnl_krw, 0),
