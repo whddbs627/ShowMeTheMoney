@@ -40,7 +40,7 @@ export const getMe = () => fetchJSON<{
   user_id: number; username: string; has_api_keys: boolean;
   discord_webhook_url: string;
   notify_buy: boolean; notify_sell: boolean; notify_error: boolean; notify_start_stop: boolean;
-  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; take_profit_pct: number; max_investment_krw: number; min_investment_krw: number };
+  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; take_profit_pct: number; max_investment_krw: number; min_investment_krw: number; strategy_type: string };
 }>("/auth/me");
 
 export const saveApiKeys = (access_key: string, secret_key: string) =>
@@ -58,9 +58,9 @@ export const changePassword = (current_password: string, new_password: string) =
     method: "POST", body: JSON.stringify({ current_password, new_password }),
   });
 
-export const changeUsername = (new_username: string, password: string) =>
-  fetchJSON<{ message: string }>("/auth/change-username", {
-    method: "POST", body: JSON.stringify({ new_username, password }),
+export const deleteAccount = (password: string) =>
+  fetchJSON<{ message: string }>("/auth/delete-account", {
+    method: "POST", body: JSON.stringify({ password }),
   });
 
 export const saveStrategy = (strategy: Record<string, unknown>) =>
@@ -98,6 +98,10 @@ export const cancelOrder = (uuid: string) =>
   fetchJSON<{ message: string }>("/orders/cancel", {
     method: "POST", body: JSON.stringify({ uuid }),
   });
+
+// Chart
+export const getChart = (ticker: string, days = 30) =>
+  fetchJSON<{ date: string; open: number; high: number; low: number; close: number; volume: number }[]>(`/chart/${ticker}?days=${days}`);
 
 // Version (for auto-refresh)
 export const getVersion = () => fetchJSON<{ version: string }>("/version");

@@ -47,6 +47,7 @@ class UserBot:
         self.loss_pct = user.get("strategy_loss_pct", 0.03)
         self.max_investment = user.get("max_investment_krw", 100000)
         self.take_profit_pct = user.get("take_profit_pct", 0.05)
+        self.strategy_type = user.get("strategy_type", "volatility_breakout")
         self.investment_ratio = 0.5
 
         # Notify settings
@@ -266,6 +267,7 @@ class UserBot:
                 signal = should_buy(
                     df_short, df_long, price, self.k,
                     self.use_ma, self.use_rsi, self.rsi_lower,
+                    strategy_type=self.strategy_type,
                 )
                 if signal:
                     krw = await asyncio.to_thread(self.api.get_krw_balance)

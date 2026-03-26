@@ -10,9 +10,11 @@ from upbit_api import UpbitAPI
 
 router = APIRouter(tags=["price"])
 
+# 보유 상태 캐시 (API 실패 시 이전 상태 유지)
+_holding_cache: dict[int, dict[str, dict]] = {}  # user_id -> {ticker -> {state, buy_price}}
 
-async def _fetch_coin_data(ticker: str, api: UpbitAPI | None, user_k: float) -> dict:
-    """코인 시세 + 보유 상태 조회"""
+
+async def _fetch_coin_data(ticker: str, api: UpbitAPI | None, user_k: float, user_id: int) -> dict:
     try:
         price = await asyncio.to_thread(pyupbit.get_current_price, ticker)
         df_short = await asyncio.to_thread(pyupbit.get_ohlcv, ticker, interval="day", count=2)
@@ -28,30 +30,42 @@ async def _fetch_coin_data(ticker: str, api: UpbitAPI | None, user_k: float) -> 
             rsi = float(calc_rsi(df_long))
             ma_bullish = bool(check_ma_filter(df_long))
 
-        # 실제 업비트 잔고로 보유 여부 판단
+        # 보유 여부 확인
         state = "waiting"
         buy_price = None
         if api:
-            balance = await asyncio.to_thread(api.get_balance, ticker)
-            if balance and balance > 0 and price and balance * price > 5000:
-                state = "holding"
-                avg = await asyncio.to_thread(api.get_avg_buy_price, ticker)
-                buy_price = avg
+            try:
+                balance = await asyncio.to_thread(api.get_balance, ticker)
+                if balance and balance > 0 and price and balance * price > 5000:
+                    state = "holding"
+                    avg = await asyncio.to_thread(api.get_avg_buy_price, ticker)
+                    buy_price = avg
+                # 캐시 업데이트
+                if user_id not in _holding_cache:
+                    _holding_cache[user_id] = {}
+                _holding_cache[user_id][ticker] = {"state": state, "buy_price": buy_price}
+            except Exception:
+                # API 실패 시 캐시 사용
+                cached = _holding_cache.get(user_id, {}).get(ticker)
+                if cached:
+                    state = cached["state"]
+                    buy_price = cached["buy_price"]
 
         return {
-            "ticker": ticker,
-            "state": state,
+            "ticker": ticker, "state": state,
             "current_price": float(price) if price else None,
-            "target_price": target,
-            "buy_price": buy_price,
-            "rsi": rsi,
-            "ma_bullish": ma_bullish,
+            "target_price": target, "buy_price": buy_price,
+            "rsi": rsi, "ma_bullish": ma_bullish,
         }
     except Exception:
+        # 전체 실패 시 캐시 사용
+        cached = _holding_cache.get(user_id, {}).get(ticker)
         return {
-            "ticker": ticker, "state": "waiting",
+            "ticker": ticker,
+            "state": cached["state"] if cached else "waiting",
             "current_price": None, "target_price": None,
-            "buy_price": None, "rsi": None, "ma_bullish": None,
+            "buy_price": cached["buy_price"] if cached else None,
+            "rsi": None, "ma_bullish": None,
         }
 
 
@@ -59,27 +73,26 @@ async def _fetch_coin_data(ticker: str, api: UpbitAPI | None, user_k: float) -> 
 async def get_price(user: dict = Depends(get_current_user)):
     bot = bot_manager.get_bot(user["id"])
 
-    # 봇이 실행 중이면 봇의 캐시된 데이터 사용 (단, 잔고 기반 보유 상태 보정)
     if bot and bot.running:
         status = bot.get_status()
-        # 봇 trader가 holding을 모르는 경우(수동 매수 등) 보정
         coins = status.get("coins", [])
         for coin in coins:
             if coin["state"] == "waiting" and bot.api:
-                bal = await asyncio.to_thread(bot.api.get_balance, coin["ticker"])
-                price = coin.get("current_price") or 0
-                if bal and bal > 0 and price and bal * price > 5000:
-                    coin["state"] = "holding"
-                    avg = await asyncio.to_thread(bot.api.get_avg_buy_price, coin["ticker"])
-                    coin["buy_price"] = avg
+                try:
+                    bal = await asyncio.to_thread(bot.api.get_balance, coin["ticker"])
+                    price = coin.get("current_price") or 0
+                    if bal and bal > 0 and price and bal * price > 5000:
+                        coin["state"] = "holding"
+                        avg = await asyncio.to_thread(bot.api.get_avg_buy_price, coin["ticker"])
+                        coin["buy_price"] = avg
+                except Exception:
+                    pass
         return {"coins": coins}
 
-    # 봇이 꺼져있으면 직접 조회
     tickers = await get_watchlist(user["id"])
     if not tickers:
         return {"coins": []}
 
-    # API 생성
     api = None
     enc_access = user.get("encrypted_access_key")
     enc_secret = user.get("encrypted_secret_key")
@@ -93,8 +106,30 @@ async def get_price(user: dict = Depends(get_current_user)):
 
     coins = []
     for ticker in tickers:
-        data = await _fetch_coin_data(ticker, api, user_k)
+        data = await _fetch_coin_data(ticker, api, user_k, user["id"])
         coins.append(data)
         await asyncio.sleep(0.1)
 
     return {"coins": coins}
+
+
+# 차트 데이터 API
+@router.get("/chart/{ticker}")
+async def get_chart(ticker: str, days: int = 30):
+    try:
+        df = await asyncio.to_thread(pyupbit.get_ohlcv, ticker, interval="day", count=days)
+        if df is None or len(df) == 0:
+            return []
+        result = []
+        for idx, row in df.iterrows():
+            result.append({
+                "date": idx.strftime("%m/%d"),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row["volume"]),
+            })
+        return result
+    except Exception:
+        return []

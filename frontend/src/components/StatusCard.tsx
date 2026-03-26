@@ -10,9 +10,9 @@ function formatUptime(seconds: number | null): string {
 }
 
 const PRESETS = [
-  { name: "안정형", desc: "소액·저위험", config: { k: 0.3, use_ma: true, use_rsi: true, rsi_lower: 35, loss_pct: 0.02, take_profit_pct: 0.03, max_investment_krw: 50000, min_investment_krw: 5000 } },
-  { name: "균형형", desc: "추천 기본값", config: { k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000 } },
-  { name: "공격형", desc: "고수익·고위험", config: { k: 0.7, use_ma: false, use_rsi: false, rsi_lower: 20, loss_pct: 0.05, take_profit_pct: 0.1, max_investment_krw: 200000, min_investment_krw: 10000 } },
+  { name: "안정형", desc: "소액·저위험", config: { k: 0.3, use_ma: true, use_rsi: true, rsi_lower: 35, loss_pct: 0.02, take_profit_pct: 0.03, max_investment_krw: 50000, min_investment_krw: 5000, strategy_type: "volatility_breakout" } },
+  { name: "균형형", desc: "추천 기본값", config: { k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000, strategy_type: "volatility_breakout" } },
+  { name: "공격형", desc: "고수익·고위험", config: { k: 0.7, use_ma: false, use_rsi: false, rsi_lower: 20, loss_pct: 0.05, take_profit_pct: 0.1, max_investment_krw: 200000, min_investment_krw: 10000, strategy_type: "volatility_breakout" } },
 ];
 
 interface Props {
@@ -25,7 +25,7 @@ interface Props {
 export default function StatusCard({ status, coinCount, holdingCount: extHoldingCount, onAction }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [strategy, setStrategy] = useState({ k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000 });
+  const [strategy, setStrategy] = useState({ k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000, strategy_type: "volatility_breakout" });
   const [showStrategy, setShowStrategy] = useState(false);
   const [strategyMsg, setStrategyMsg] = useState("");
 
@@ -103,6 +103,17 @@ export default function StatusCard({ status, coinCount, holdingCount: extHolding
                 <div style={{ fontSize: 10, marginTop: 2 }}>{p.desc}</div>
               </button>
             ))}
+          </div>
+
+          <div className="setting-row" style={{ padding: "4px 0", marginBottom: 8 }}>
+            <span style={{ fontSize: 12 }}>매매 전략</span>
+            <select value={strategy.strategy_type} onChange={(e) => setStrategy({ ...strategy, strategy_type: e.target.value })}
+              style={{ padding: "3px 6px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0" }}>
+              <option value="volatility_breakout">변동성 돌파</option>
+              <option value="rsi_bounce">RSI 반등</option>
+              <option value="golden_cross">골든크로스</option>
+              <option value="combined">복합 전략</option>
+            </select>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", fontSize: 12 }}>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CoinStatus } from "../types";
 import { removeFromWatchlist, manualBuy, manualSell } from "../api";
+import CoinChart from "./CoinChart";
 
 type SortKey = "default" | "name" | "price" | "change" | "rsi";
 
@@ -19,6 +20,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("default");
+  const [chartTicker, setChartTicker] = useState<string | null>(null);
 
   const allTickers = [...new Set([...watchlist, ...coins.map((c) => c.ticker)])];
 
@@ -94,6 +96,8 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
   ];
 
   return (
+    <>
+    {chartTicker && <CoinChart ticker={chartTicker} onClose={() => setChartTicker(null)} />}
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>내 코인 ({rows.length}개{holdingCount > 0 ? ` · 보유 ${holdingCount}` : ""})</h3>
@@ -140,7 +144,9 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
               const isLoading = loading[ticker];
               return (
                 <tr key={ticker} style={{ background: isHolding ? "#22c55e08" : undefined }}>
-                  <td style={{ fontWeight: 600 }}>{ticker.replace("KRW-", "")}</td>
+                  <td style={{ fontWeight: 600, cursor: "pointer", color: "#3b82f6" }} onClick={() => setChartTicker(ticker)} title="차트 보기">
+                    {ticker.replace("KRW-", "")}
+                  </td>
                   <td>
                     <span style={{ color: isHolding ? "#22c55e" : "#555", fontWeight: 600, fontSize: 12 }}>
                       {isHolding ? "보유" : c ? "대기" : "-"}
@@ -193,5 +199,6 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
         </table>
       </div>
     </div>
+    </>
   );
 }

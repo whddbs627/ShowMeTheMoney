@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getMe, saveApiKeys, saveDiscord, changePassword, changeUsername } from "../api";
+import { getMe, saveApiKeys, saveDiscord, changePassword, deleteAccount } from "../api";
 
 interface Props {
   open: boolean;
@@ -21,8 +21,7 @@ export default function Settings({ open, onClose }: Props) {
   // 계정 관리
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
-  const [newUsername, setNewUsername] = useState("");
-  const [pwForUsername, setPwForUsername] = useState("");
+  const [deletePw, setDeletePw] = useState("");
   const [accountMsg, setAccountMsg] = useState("");
 
   useEffect(() => {
@@ -63,12 +62,13 @@ export default function Settings({ open, onClose }: Props) {
     } catch (e) { showAccountMsg(e instanceof Error ? e.message : "변경 실패"); }
   };
 
-  const handleChangeUsername = async () => {
+  const handleDelete = async () => {
+    if (!confirm("정말 탈퇴하시겠습니까? 모든 데이터가 삭제됩니다.")) return;
     try {
-      const res = await changeUsername(newUsername, pwForUsername);
-      showAccountMsg(res.message);
-      setNewUsername(""); setPwForUsername("");
-    } catch (e) { showAccountMsg(e instanceof Error ? e.message : "변경 실패"); }
+      await deleteAccount(deletePw);
+      localStorage.removeItem("token");
+      window.location.reload();
+    } catch (e) { showAccountMsg(e instanceof Error ? e.message : "탈퇴 실패"); }
   };
 
   return (
@@ -137,11 +137,10 @@ export default function Settings({ open, onClose }: Props) {
             <button onClick={handleChangePw} style={{ padding: "8px 12px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>변경</button>
           </div>
 
-          <p style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>아이디 변경</p>
+          <p style={{ color: "#888", fontSize: 11, marginBottom: 4, marginTop: 12 }}>회원 탈퇴</p>
           <div style={{ display: "flex", gap: 4 }}>
-            <input className="input" type="text" placeholder="새 아이디" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} style={{ marginBottom: 0 }} />
-            <input className="input" type="password" placeholder="비밀번호 확인" value={pwForUsername} onChange={(e) => setPwForUsername(e.target.value)} style={{ marginBottom: 0 }} />
-            <button onClick={handleChangeUsername} style={{ padding: "8px 12px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>변경</button>
+            <input className="input" type="password" placeholder="비밀번호 확인" value={deletePw} onChange={(e) => setDeletePw(e.target.value)} style={{ marginBottom: 0 }} />
+            <button onClick={handleDelete} style={{ padding: "8px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer", whiteSpace: "nowrap" }}>탈퇴</button>
           </div>
         </div>
       </div>

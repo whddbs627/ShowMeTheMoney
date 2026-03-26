@@ -45,6 +45,7 @@ class StrategyRequest(BaseModel):
     take_profit_pct: float = 0.05
     max_investment_krw: float = 100000
     min_investment_krw: float = 5000
+    strategy_type: str = "volatility_breakout"
 
 
 @router.post("/auth/register")
@@ -100,6 +101,7 @@ async def get_me(user: dict = Depends(get_current_user)):
             "max_investment_krw": user["max_investment_krw"],
             "min_investment_krw": user.get("min_investment_krw", 5000),
             "take_profit_pct": user.get("take_profit_pct", 0.05),
+            "strategy_type": user.get("strategy_type", "volatility_breakout"),
         },
     }
 
@@ -109,8 +111,7 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-class ChangeUsernameRequest(BaseModel):
-    new_username: str
+class DeleteAccountRequest(BaseModel):
     password: str
 
 
@@ -126,20 +127,21 @@ async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_c
     return {"message": "비밀번호가 변경되었습니다"}
 
 
-@router.post("/auth/change-username")
-async def change_username(req: ChangeUsernameRequest, user: dict = Depends(get_current_user)):
+@router.post("/auth/delete-account")
+async def delete_account(req: DeleteAccountRequest, user: dict = Depends(get_current_user)):
     if not verify_password(req.password, user["password_hash"]):
         raise HTTPException(400, "비밀번호가 올바르지 않습니다")
-    if len(req.new_username) < 3:
-        raise HTTPException(400, "아이디는 3자 이상이어야 합니다")
 
-    existing = await get_user_by_username(req.new_username)
-    if existing:
-        raise HTTPException(400, "이미 사용 중인 아이디입니다")
+    # 봇 중지
+    from backend.engine import bot_manager
+    bot = bot_manager.get_bot(user["id"])
+    if bot:
+        await bot.stop()
+        bot_manager.bots.pop(user["id"], None)
 
-    from backend.database import update_user_username
-    await update_user_username(user["id"], req.new_username)
-    return {"message": "아이디가 변경되었습니다"}
+    from backend.database import delete_user
+    await delete_user(user["id"])
+    return {"message": "계정이 삭제되었습니다"}
 
 
 @router.post("/auth/api-keys")

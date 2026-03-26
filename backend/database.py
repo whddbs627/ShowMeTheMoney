@@ -33,6 +33,7 @@ async def init_db():
             ("notify_error", "INTEGER DEFAULT 1"),
             ("notify_start_stop", "INTEGER DEFAULT 1"),
             ("take_profit_pct", "REAL DEFAULT 0.05"),
+            ("strategy_type", "TEXT DEFAULT 'volatility_breakout'"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col} {default}")
@@ -103,6 +104,15 @@ async def get_user_by_id(user_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+async def delete_user(user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM trades WHERE user_id=?", (user_id,))
+        await db.execute("DELETE FROM watchlist WHERE user_id=?", (user_id,))
+        await db.execute("DELETE FROM balance_snapshots WHERE user_id=?", (user_id,))
+        await db.execute("DELETE FROM users WHERE id=?", (user_id,))
+        await db.commit()
+
+
 async def update_user_password(user_id: int, password_hash: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
@@ -137,13 +147,15 @@ async def update_user_strategy(user_id: int, strategy: dict):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """UPDATE users SET strategy_k=?, strategy_ma=?, strategy_rsi=?,
-               strategy_rsi_lower=?, strategy_loss_pct=?, max_investment_krw=?, min_investment_krw=?, take_profit_pct=? WHERE id=?""",
+               strategy_rsi_lower=?, strategy_loss_pct=?, max_investment_krw=?, min_investment_krw=?,
+               take_profit_pct=?, strategy_type=? WHERE id=?""",
             (
                 strategy["k"], strategy["use_ma"], strategy["use_rsi"],
                 strategy["rsi_lower"], strategy["loss_pct"],
                 strategy.get("max_investment_krw", 100000),
                 strategy.get("min_investment_krw", 5000),
                 strategy.get("take_profit_pct", 0.05),
+                strategy.get("strategy_type", "volatility_breakout"),
                 user_id,
             ),
         )
