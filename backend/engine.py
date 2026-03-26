@@ -94,8 +94,7 @@ class UserBot:
 
         self.tickers = await get_watchlist(self.user_id)
         if not self.tickers:
-            from config import DEFAULT_TICKERS
-            self.tickers = DEFAULT_TICKERS[:]
+            raise ValueError("Add coins to your watchlist first")
 
         self._init_components(access_key, secret_key, discord_url)
 
@@ -159,10 +158,10 @@ class UserBot:
             if df_short is None or df_long is None or price is None:
                 return
 
-            state.current_price = price
-            state.target_price = calc_target_price(df_short, self.k)
-            state.rsi = calc_rsi(df_long)
-            state.ma_bullish = check_ma_filter(df_long)
+            state.current_price = float(price)
+            state.target_price = float(calc_target_price(df_short, self.k))
+            state.rsi = float(calc_rsi(df_long))
+            state.ma_bullish = bool(check_ma_filter(df_long))
 
             if trader.holding:
                 buy_price_snapshot = trader.buy_price

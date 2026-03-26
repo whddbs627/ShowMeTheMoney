@@ -5,7 +5,6 @@ import AuthPage from "./components/AuthPage";
 import StatusCard from "./components/StatusCard";
 import PriceDisplay from "./components/PriceDisplay";
 import BalanceCard from "./components/BalanceCard";
-import BotControls from "./components/BotControls";
 import TradeTable from "./components/TradeTable";
 import PnlChart from "./components/PnlChart";
 import CoinSearch from "./components/CoinSearch";
@@ -28,32 +27,23 @@ function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
 
   const fetchFast = useCallback(async () => {
-    try {
-      setStatus(await getBotStatus() as BotStatus);
-    } catch { /* ignore */ }
+    try { setStatus(await getBotStatus() as BotStatus); } catch { /* */ }
   }, []);
 
   const fetchSlow = useCallback(async () => {
     try {
       const [b, t, p] = await Promise.all([getBalance(), getTrades(), getPnl()]);
-      setBalance(b as BalanceInfo);
-      setTrades(t as TradeRecord[]);
-      setPnl(p as PnlPoint[]);
-    } catch { /* ignore */ }
+      setBalance(b as BalanceInfo); setTrades(t as TradeRecord[]); setPnl(p as PnlPoint[]);
+    } catch { /* */ }
   }, []);
 
   const fetchWatchlist = useCallback(async () => {
-    try {
-      const data = await getWatchlist();
-      setWatchlistTickers(data.tickers);
-    } catch { /* ignore */ }
+    try { setWatchlistTickers((await getWatchlist()).tickers); } catch { /* */ }
   }, []);
 
   useEffect(() => {
     if (!token) return;
-    fetchFast();
-    fetchSlow();
-    fetchWatchlist();
+    fetchFast(); fetchSlow(); fetchWatchlist();
     const fast = setInterval(fetchFast, 5000);
     const slow = setInterval(fetchSlow, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
@@ -85,21 +75,20 @@ function App() {
 
       {tab === "dashboard" && (
         <>
-          <div className="grid-top">
-            <StatusCard status={status} />
+          <div className="grid-two">
+            <StatusCard status={status} onAction={handleAction} />
             <BalanceCard balance={balance} />
-            <BotControls running={status?.running ?? false} onAction={handleAction} />
           </div>
 
-          <div className="grid-market">
+          <div className="grid-two">
             <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
             <Watchlist tickers={watchlistTickers} onRemove={fetchWatchlist} />
           </div>
 
           <PriceDisplay coins={status?.coins ?? []} />
-          <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
           <PnlChart data={pnl} />
           <TradeTable trades={trades} />
+          <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>
       )}
 

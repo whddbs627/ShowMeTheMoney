@@ -207,7 +207,7 @@ tr:hover td {
   border-bottom-color: #3b82f6;
 }
 
-.grid-market {
+.grid-two {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
@@ -215,7 +215,7 @@ tr:hover td {
 }
 
 @media (max-width: 768px) {
-  .grid-market {
+  .grid-two {
     grid-template-columns: 1fr;
   }
 }

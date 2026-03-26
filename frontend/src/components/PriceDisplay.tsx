@@ -1,7 +1,7 @@
 import type { CoinStatus } from "../types";
 
 export default function PriceDisplay({ coins }: { coins: CoinStatus[] }) {
-  if (coins.length === 0) return <div className="card">Loading...</div>;
+  if (coins.length === 0) return <div className="card"><h3>Coin Status</h3><p style={{color:"#888",fontSize:13}}>Add coins to watchlist and start the bot.</p></div>;
 
   return (
     <div className="card" style={{ gridColumn: "1 / -1" }}>
