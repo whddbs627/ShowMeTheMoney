@@ -17,10 +17,12 @@ const PRESETS = [
 
 interface Props {
   status: BotStatus | null;
+  coinCount: number;
+  holdingCount: number;
   onAction: () => void;
 }
 
-export default function StatusCard({ status, onAction }: Props) {
+export default function StatusCard({ status, coinCount, holdingCount: extHoldingCount, onAction }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [strategy, setStrategy] = useState({ k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, max_investment_krw: 100000, min_investment_krw: 5000 });
@@ -33,7 +35,8 @@ export default function StatusCard({ status, onAction }: Props) {
 
   if (!status) return <div className="card">Loading...</div>;
 
-  const holdingCount = status.coins.filter((c) => c.state === "holding").length;
+  const holdingCount = extHoldingCount || status.coins.filter((c) => c.state === "holding").length;
+  const totalCoins = coinCount || status.coins.length;
 
   const handleStart = async () => {
     setError(""); setLoading(true);
@@ -75,7 +78,7 @@ export default function StatusCard({ status, onAction }: Props) {
       </div>
       <p style={{ color: "#666", fontSize: 11, marginBottom: 12 }}>변동성 돌파 전략으로 자동 매수/매도합니다</p>
 
-      <div className="info-row"><span>감시 코인</span><span>{status.coins.length}개</span></div>
+      <div className="info-row"><span>감시 코인</span><span>{totalCoins}개</span></div>
       <div className="info-row"><span>보유 중</span><span style={{ color: holdingCount > 0 ? "#22c55e" : undefined }}>{holdingCount}개</span></div>
       <div className="info-row"><span>가동 시간</span><span>{formatUptime(status.uptime_seconds)}</span></div>
 

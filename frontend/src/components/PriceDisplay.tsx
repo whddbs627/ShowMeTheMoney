@@ -122,7 +122,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
               <th>코인</th>
               <th>상태</th>
               <th>현재가</th>
-              <th>목표가</th>
+              <th>매수목표</th>
               <th>손절가</th>
               <th>RSI</th>
               <th>추세</th>
@@ -162,7 +162,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
                           style={{ width: 75, padding: "3px 6px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0" }} />
                         <button onClick={() => handleSell(ticker)} disabled={isLoading}
                           style={{ padding: "3px 8px", fontSize: 11, borderRadius: 4, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                          {isLoading ? "..." : sellPrices[ticker] ? "지정매도" : "시장매도"}
+                          {isLoading ? "..." : sellPrices[ticker] ? "지정매도" : "매도"}
                         </button>
                       </div>
                     ) : (

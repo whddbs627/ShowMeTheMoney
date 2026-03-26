@@ -53,6 +53,16 @@ export const saveDiscord = (webhook_url: string, notify_buy = true, notify_sell 
     method: "POST", body: JSON.stringify({ webhook_url, notify_buy, notify_sell, notify_error, notify_start_stop }),
   });
 
+export const changePassword = (current_password: string, new_password: string) =>
+  fetchJSON<{ message: string }>("/auth/change-password", {
+    method: "POST", body: JSON.stringify({ current_password, new_password }),
+  });
+
+export const changeUsername = (new_username: string, password: string) =>
+  fetchJSON<{ message: string }>("/auth/change-username", {
+    method: "POST", body: JSON.stringify({ new_username, password }),
+  });
+
 export const saveStrategy = (strategy: Record<string, unknown>) =>
   fetchJSON<{ message: string }>("/auth/strategy", {
     method: "POST", body: JSON.stringify(strategy),

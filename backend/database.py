@@ -102,6 +102,18 @@ async def get_user_by_id(user_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+async def update_user_password(user_id: int, password_hash: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
+        await db.commit()
+
+
+async def update_user_username(user_id: int, username: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET username=? WHERE id=?", (username, user_id))
+        await db.commit()
+
+
 async def update_user_keys(user_id: int, enc_access: str, enc_secret: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(

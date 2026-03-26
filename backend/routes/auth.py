@@ -102,6 +102,44 @@ async def get_me(user: dict = Depends(get_current_user)):
     }
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ChangeUsernameRequest(BaseModel):
+    new_username: str
+    password: str
+
+
+@router.post("/auth/change-password")
+async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    if not verify_password(req.current_password, user["password_hash"]):
+        raise HTTPException(400, "현재 비밀번호가 올바르지 않습니다")
+    if len(req.new_password) < 6:
+        raise HTTPException(400, "새 비밀번호는 6자 이상이어야 합니다")
+
+    from backend.database import update_user_password
+    await update_user_password(user["id"], hash_password(req.new_password))
+    return {"message": "비밀번호가 변경되었습니다"}
+
+
+@router.post("/auth/change-username")
+async def change_username(req: ChangeUsernameRequest, user: dict = Depends(get_current_user)):
+    if not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(400, "비밀번호가 올바르지 않습니다")
+    if len(req.new_username) < 3:
+        raise HTTPException(400, "아이디는 3자 이상이어야 합니다")
+
+    existing = await get_user_by_username(req.new_username)
+    if existing:
+        raise HTTPException(400, "이미 사용 중인 아이디입니다")
+
+    from backend.database import update_user_username
+    await update_user_username(user["id"], req.new_username)
+    return {"message": "아이디가 변경되었습니다"}
+
+
 @router.post("/auth/api-keys")
 async def save_api_keys(req: ApiKeysRequest, user: dict = Depends(get_current_user)):
     enc_access = encrypt_key(req.access_key)

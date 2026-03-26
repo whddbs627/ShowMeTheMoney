@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getMe, saveApiKeys, saveDiscord } from "../api";
+import { getMe, saveApiKeys, saveDiscord, changePassword, changeUsername } from "../api";
 
 interface Props {
   open: boolean;
@@ -18,6 +18,13 @@ export default function Settings({ open, onClose }: Props) {
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // 계정 관리
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [pwForUsername, setPwForUsername] = useState("");
+  const [accountMsg, setAccountMsg] = useState("");
+
   useEffect(() => {
     if (!open) return;
     getMe().then((data) => {
@@ -32,6 +39,9 @@ export default function Settings({ open, onClose }: Props) {
 
   if (!open) return null;
 
+  const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(""), 3000); };
+  const showAccountMsg = (text: string) => { setAccountMsg(text); setTimeout(() => setAccountMsg(""), 3000); };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -40,11 +50,25 @@ export default function Settings({ open, onClose }: Props) {
         setHasKeys(true); setAccessKey(""); setSecretKey("");
       }
       await saveDiscord(discordUrl, notifyBuy, notifySell, notifyError, notifyStartStop);
-      setMsg("저장 완료!"); setTimeout(() => setMsg(""), 2000);
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "저장 실패");
-    }
+      showMsg("저장 완료!");
+    } catch (e) { showMsg(e instanceof Error ? e.message : "저장 실패"); }
     setSaving(false);
+  };
+
+  const handleChangePw = async () => {
+    try {
+      const res = await changePassword(currentPw, newPw);
+      showAccountMsg(res.message);
+      setCurrentPw(""); setNewPw("");
+    } catch (e) { showAccountMsg(e instanceof Error ? e.message : "변경 실패"); }
+  };
+
+  const handleChangeUsername = async () => {
+    try {
+      const res = await changeUsername(newUsername, pwForUsername);
+      showAccountMsg(res.message);
+      setNewUsername(""); setPwForUsername("");
+    } catch (e) { showAccountMsg(e instanceof Error ? e.message : "변경 실패"); }
   };
 
   return (
@@ -61,6 +85,7 @@ export default function Settings({ open, onClose }: Props) {
           </div>
         )}
 
+        {/* API 키 */}
         <div style={{ marginBottom: 16 }}>
           <h4 style={{ color: "#ccc", fontSize: 13, margin: "0 0 8px" }}>
             업비트 API 키 {hasKeys ? <span style={{ color: "#22c55e" }}>저장됨</span> : <span style={{ color: "#ef4444" }}>미설정</span>}
@@ -69,19 +94,19 @@ export default function Settings({ open, onClose }: Props) {
           <input className="input" type="password" placeholder={hasKeys ? "변경 시 입력 (빈칸=유지)" : "Secret Key"} value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
         </div>
 
+        {/* 디스코드 */}
         <div style={{ marginBottom: 16 }}>
           <h4 style={{ color: "#ccc", fontSize: 13, margin: "0 0 8px" }}>
             디스코드 알림 {discordUrl ? <span style={{ color: "#22c55e" }}>저장됨</span> : <span style={{ color: "#888" }}>선택</span>}
           </h4>
           <input className="input" type="text" placeholder="디스코드 웹훅 URL" value={discordUrl} onChange={(e) => setDiscordUrl(e.target.value)} />
-
-          <p style={{ color: "#888", fontSize: 11, margin: "8px 0 4px" }}>받을 알림 선택:</p>
+          <p style={{ color: "#888", fontSize: 11, margin: "8px 0 4px" }}>받을 알림:</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
             {[
-              { label: "매수 알림", value: notifyBuy, set: setNotifyBuy },
-              { label: "매도 알림", value: notifySell, set: setNotifySell },
-              { label: "에러 알림", value: notifyError, set: setNotifyError },
-              { label: "시작/중지 알림", value: notifyStartStop, set: setNotifyStartStop },
+              { label: "매수", value: notifyBuy, set: setNotifyBuy },
+              { label: "매도", value: notifySell, set: setNotifySell },
+              { label: "에러", value: notifyError, set: setNotifyError },
+              { label: "시작/중지", value: notifyStartStop, set: setNotifyStartStop },
             ].map((item) => (
               <label key={item.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#aaa", cursor: "pointer" }}>
                 <input type="checkbox" checked={item.value} onChange={(e) => item.set(e.target.checked)} />
@@ -91,9 +116,34 @@ export default function Settings({ open, onClose }: Props) {
           </div>
         </div>
 
-        <button className="btn btn-start" style={{ width: "100%", padding: 12 }} onClick={handleSave} disabled={saving}>
+        <button className="btn btn-start" style={{ width: "100%", padding: 10, marginBottom: 20 }} onClick={handleSave} disabled={saving}>
           {saving ? "저장 중..." : "설정 저장"}
         </button>
+
+        {/* 계정 관리 */}
+        <div style={{ borderTop: "1px solid #2a2a4a", paddingTop: 16 }}>
+          <h4 style={{ color: "#ccc", fontSize: 13, margin: "0 0 12px" }}>계정 관리</h4>
+
+          {accountMsg && (
+            <div style={{ background: accountMsg.includes("실패") || accountMsg.includes("올바르지") ? "#ef444422" : "#22c55e22", border: `1px solid ${accountMsg.includes("실패") || accountMsg.includes("올바르지") ? "#ef4444" : "#22c55e"}`, borderRadius: 6, padding: "6px 12px", marginBottom: 8, fontSize: 12, color: accountMsg.includes("실패") || accountMsg.includes("올바르지") ? "#ef4444" : "#22c55e" }}>
+              {accountMsg}
+            </div>
+          )}
+
+          <p style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>비밀번호 변경</p>
+          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+            <input className="input" type="password" placeholder="현재 비밀번호" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} style={{ marginBottom: 0 }} />
+            <input className="input" type="password" placeholder="새 비밀번호" value={newPw} onChange={(e) => setNewPw(e.target.value)} style={{ marginBottom: 0 }} />
+            <button onClick={handleChangePw} style={{ padding: "8px 12px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>변경</button>
+          </div>
+
+          <p style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>아이디 변경</p>
+          <div style={{ display: "flex", gap: 4 }}>
+            <input className="input" type="text" placeholder="새 아이디" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} style={{ marginBottom: 0 }} />
+            <input className="input" type="password" placeholder="비밀번호 확인" value={pwForUsername} onChange={(e) => setPwForUsername(e.target.value)} style={{ marginBottom: 0 }} />
+            <button onClick={handleChangeUsername} style={{ padding: "8px 12px", fontSize: 12, borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>변경</button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -105,7 +105,7 @@ function App() {
       {tab === "dashboard" && (
         <>
           <div className="grid-two">
-            <StatusCard status={status} onAction={handleAction} />
+            <StatusCard status={status} coinCount={coins.length || watchlistTickers.length} holdingCount={coins.filter(c => c.state === "holding").length} onAction={handleAction} />
             <BalanceCard balance={balance} pnl={pnl} />
           </div>
           <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} onTrade={handleTrade} lossPct={lossPct} />
