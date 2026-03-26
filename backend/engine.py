@@ -234,6 +234,18 @@ class UserBot:
             state.rsi = float(calc_rsi(df_long))
             state.ma_bullish = bool(check_ma_filter(df_long))
 
+            # 수동 매수 등으로 trader가 holding을 모르는 경우 자동 sync
+            if not trader.holding:
+                bal = await asyncio.to_thread(self.api.get_balance, ticker)
+                if bal and bal > 0 and price and bal * price > 5000:
+                    avg = await asyncio.to_thread(self.api.get_avg_buy_price, ticker)
+                    if avg and avg > 0:
+                        trader.holding = True
+                        trader.buy_price = avg
+                        trader.buy_date = trader._get_trading_date()
+                        trader.bought_today = True
+                        logger.info(f"[User {self.user_id}] Auto-synced holding: {ticker} avg={avg:,.0f}")
+
             if trader.holding:
                 buy_price_snapshot = trader.buy_price
                 buy_date_snapshot = trader.buy_date

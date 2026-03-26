@@ -4,7 +4,7 @@ import pyupbit
 
 from backend.engine import bot_manager
 from backend.auth import get_current_user, decrypt_key
-from backend.database import get_watchlist
+from backend.database import get_watchlist, get_demo_holdings
 from strategy import calc_target_price, calc_rsi, check_ma_filter
 from upbit_api import UpbitAPI
 
@@ -103,10 +103,25 @@ async def get_price(user: dict = Depends(get_current_user)):
             pass
 
     user_k = user.get("strategy_k", 0.5)
+    is_demo = bool(user.get("is_demo", 0))
+
+    # 데모 모드: 가상 보유 상태
+    demo_holdings = {}
+    if is_demo:
+        for h in await get_demo_holdings(user["id"]):
+            demo_holdings[h["ticker"]] = h
 
     coins = []
     for ticker in tickers:
-        data = await _fetch_coin_data(ticker, api, user_k, user["id"])
+        if is_demo:
+            # 데모 모드: 실제 잔고 대신 가상 보유 사용
+            data = await _fetch_coin_data(ticker, None, user_k, user["id"])
+            dh = demo_holdings.get(ticker)
+            if dh and dh["volume"] > 0:
+                data["state"] = "holding"
+                data["buy_price"] = dh["avg_price"]
+        else:
+            data = await _fetch_coin_data(ticker, api, user_k, user["id"])
         coins.append(data)
         await asyncio.sleep(0.1)
 

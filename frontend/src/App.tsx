@@ -35,6 +35,7 @@ function App() {
   const [takeProfitPct, setTakeProfitPct] = useState(0.05);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [showSettings, setShowSettings] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
   const closeSettings = () => setShowSettings(false);
   const serverVersion = useRef<string | null>(null);
 
@@ -42,7 +43,8 @@ function App() {
     try {
       const [s, p, v] = await Promise.all([getBotStatus(), getPrice(), getVersion()]);
       setStatus(s as BotStatus);
-      setCoins((p as { coins: CoinStatus[] }).coins || []);
+      const newCoins = (p as { coins: CoinStatus[] }).coins;
+      if (newCoins && newCoins.length > 0) setCoins(newCoins);
       // 서버 재시작 감지 → 자동 새로고침
       if (serverVersion.current && serverVersion.current !== v.version) {
         window.location.reload();
@@ -54,7 +56,8 @@ function App() {
   const fetchSlow = useCallback(async () => {
     try {
       const [b, t, p] = await Promise.all([getBalance(), getTrades(), getPnl()]);
-      setBalance(b as BalanceInfo); setTrades(t as TradeRecord[]); setPnl(p as PnlPoint[]);
+      if (b && (b as BalanceInfo).total_krw !== null) setBalance(b as BalanceInfo);
+      setTrades(t as TradeRecord[]); setPnl(p as PnlPoint[]);
     } catch { /* */ }
   }, []);
 
@@ -65,7 +68,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
     fetchFast(); fetchSlow(); fetchWatchlist();
-    getMe().then((data) => { setUsername(data.username); setLossPct(data.strategy.loss_pct); setTakeProfitPct(data.strategy.take_profit_pct); }).catch(() => {});
+    getMe().then((data) => { setUsername(data.username); setLossPct(data.strategy.loss_pct); setTakeProfitPct(data.strategy.take_profit_pct); setIsDemo(data.is_demo); }).catch(() => {});
     const fast = setInterval(fetchFast, 5000);
     const slow = setInterval(fetchSlow, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
@@ -83,6 +86,7 @@ function App() {
       <div className="header">
         <h1 className="title">ShowMeTheMoney</h1>
         <div className="header-right">
+          {isDemo && <span style={{ background: "#eab30833", color: "#eab308", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>가상계좌</span>}
           <span style={{ color: "#888", fontSize: 13 }}>{username}</span>
           <button className="btn-icon" onClick={() => setShowSettings(!showSettings)} title="설정">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

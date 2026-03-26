@@ -41,7 +41,7 @@ export default function AuthPage({ onLogin }: Props) {
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
       <div className="card" style={{ width: 400, margin: 0 }}>
         <h2 style={{ color: "#f0f0f0", marginBottom: 4, fontSize: 24, textAlign: "center" }}>ShowMeTheMoney</h2>
-        <p style={{ color: "#666", fontSize: 12, textAlign: "center", marginBottom: 20 }}>코인 자동매매 플랫폼</p>
+        <p style={{ color: "#666", fontSize: 12, textAlign: "center", marginBottom: 20 }}>코인 자동매매 플랫폼 · API 키 없이 가상계좌로 체험 가능</p>
 
         <form onSubmit={handleSubmit}>
           <input type="text" placeholder="아이디" value={username} onChange={(e) => setUsername(e.target.value)} className="input" />
