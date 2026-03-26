@@ -113,3 +113,45 @@ td {
 tr:hover td {
   background: #16162a;
 }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #2a2a4a;
+  padding-bottom: 0;
+}
+
+.tab {
+  padding: 10px 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: #f0f0f0;
+}
+
+.tab-active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+.grid-market {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+  .grid-market {
+    grid-template-columns: 1fr;
+  }
+}

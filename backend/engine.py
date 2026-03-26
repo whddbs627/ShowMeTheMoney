@@ -11,7 +11,7 @@ from upbit_api import UpbitAPI
 from strategy import should_buy, calc_target_price, calc_rsi, check_ma_filter
 from trader import Trader
 from notifier import Notifier
-from backend.database import insert_trade
+from backend.database import insert_trade, get_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,12 @@ class BotEngine:
     async def start(self):
         if self.running:
             return
+
+        # watchlist DB에서 코인 목록 로드 (있으면 config 덮어쓰기)
+        watchlist = await get_watchlist()
+        if watchlist:
+            config.TICKERS = watchlist
+
         self._init_components()
 
         for ticker, trader in self.traders.items():
@@ -183,6 +189,30 @@ class BotEngine:
             "uptime_seconds": uptime,
             "coins": coins,
         }
+
+    def _add_coin(self, ticker: str):
+        if ticker in self.traders:
+            return
+        if self.api:
+            self.traders[ticker] = Trader(
+                api=self.api,
+                notifier=self.notifier,
+                ticker=ticker,
+                investment_ratio=config.INVESTMENT_RATIO,
+                max_investment_krw=config.MAX_INVESTMENT_KRW,
+                max_loss_pct=config.MAX_LOSS_PCT,
+            )
+            self.coin_states[ticker] = CoinState(ticker)
+            logger.info(f"Added coin: {ticker}")
+
+    def _remove_coin(self, ticker: str):
+        trader = self.traders.get(ticker)
+        if trader and trader.holding:
+            logger.warning(f"Cannot remove {ticker}: currently holding position")
+            return
+        self.traders.pop(ticker, None)
+        self.coin_states.pop(ticker, None)
+        logger.info(f"Removed coin: {ticker}")
 
 
 engine = BotEngine()

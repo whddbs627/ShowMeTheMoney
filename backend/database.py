@@ -20,6 +20,11 @@ async def init_db():
                 pnl_krw     REAL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                ticker TEXT PRIMARY KEY
+            )
+        """)
         await db.commit()
 
 
@@ -56,3 +61,25 @@ async def get_cumulative_pnl() -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+# Watchlist
+async def get_watchlist() -> list[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT ticker FROM watchlist ORDER BY ticker")
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def add_to_watchlist(ticker: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO watchlist (ticker) VALUES (?)", (ticker,)
+        )
+        await db.commit()
+
+
+async def remove_from_watchlist(ticker: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker,))
+        await db.commit()
