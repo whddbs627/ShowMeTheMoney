@@ -20,6 +20,7 @@ class Trader:
         investment_ratio: float,
         max_investment_krw: float,
         max_loss_pct: float,
+        take_profit_pct: float = 0.0,
     ):
         self.api = api
         self.notifier = notifier
@@ -27,6 +28,7 @@ class Trader:
         self.investment_ratio = investment_ratio
         self.max_investment_krw = max_investment_krw
         self.max_loss_pct = max_loss_pct
+        self.take_profit_pct = take_profit_pct  # 0이면 비활성
 
         self.holding = False
         self.buy_price = 0.0
@@ -126,8 +128,16 @@ class Trader:
         # 손절: 매수가 대비 loss_pct 이상 하락
         is_stop_loss = current_price < self.buy_price * (1 - self.max_loss_pct)
 
+        # 익절: 매수가 대비 take_profit_pct 이상 상승
+        is_take_profit = (
+            self.take_profit_pct > 0
+            and current_price > self.buy_price * (1 + self.take_profit_pct)
+        )
+
         reason = None
-        if is_new_day:
+        if is_take_profit:
+            reason = "TAKE_PROFIT"
+        elif is_new_day:
             reason = "NEXT_DAY"
         elif is_stop_loss:
             reason = "STOP_LOSS"
@@ -148,7 +158,7 @@ class Trader:
         self.holding = False
         self.bought_today = True  # 매도 후 당일 재매수 방지
 
-        reason_kr = "익일매도" if reason == "NEXT_DAY" else "손절"
+        reason_kr = {"NEXT_DAY": "익일매도", "STOP_LOSS": "손절", "TAKE_PROFIT": "익절"}.get(reason, reason)
         msg = (
             f"[매도 - {reason_kr}] {self.ticker}\n"
             f"매수: {self.buy_price:,.0f} → 매도: {current_price:,.0f}원\n"

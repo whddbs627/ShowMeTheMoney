@@ -40,7 +40,7 @@ export const getMe = () => fetchJSON<{
   user_id: number; username: string; has_api_keys: boolean;
   discord_webhook_url: string;
   notify_buy: boolean; notify_sell: boolean; notify_error: boolean; notify_start_stop: boolean;
-  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; max_investment_krw: number; min_investment_krw: number };
+  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; take_profit_pct: number; max_investment_krw: number; min_investment_krw: number };
 }>("/auth/me");
 
 export const saveApiKeys = (access_key: string, secret_key: string) =>

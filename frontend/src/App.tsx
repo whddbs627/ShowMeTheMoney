@@ -32,6 +32,7 @@ function App() {
   const [pnl, setPnl] = useState<PnlPoint[]>([]);
   const [watchlistTickers, setWatchlistTickers] = useState<string[]>([]);
   const [lossPct, setLossPct] = useState(0.03);
+  const [takeProfitPct, setTakeProfitPct] = useState(0.05);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [showSettings, setShowSettings] = useState(false);
   const closeSettings = () => setShowSettings(false);
@@ -64,7 +65,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
     fetchFast(); fetchSlow(); fetchWatchlist();
-    getMe().then((data) => { setUsername(data.username); setLossPct(data.strategy.loss_pct); }).catch(() => {});
+    getMe().then((data) => { setUsername(data.username); setLossPct(data.strategy.loss_pct); setTakeProfitPct(data.strategy.take_profit_pct); }).catch(() => {});
     const fast = setInterval(fetchFast, 5000);
     const slow = setInterval(fetchSlow, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
@@ -108,7 +109,7 @@ function App() {
             <StatusCard status={status} coinCount={coins.length || watchlistTickers.length} holdingCount={coins.filter(c => c.state === "holding").length} onAction={handleAction} />
             <BalanceCard balance={balance} pnl={pnl} />
           </div>
-          <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} onTrade={handleTrade} lossPct={lossPct} />
+          <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} onTrade={handleTrade} lossPct={lossPct} takeProfitPct={takeProfitPct} />
           <OpenOrders onCancel={handleTrade} />
           <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />

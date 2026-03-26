@@ -46,6 +46,7 @@ class UserBot:
         self.rsi_lower = user.get("strategy_rsi_lower", 30.0)
         self.loss_pct = user.get("strategy_loss_pct", 0.03)
         self.max_investment = user.get("max_investment_krw", 100000)
+        self.take_profit_pct = user.get("take_profit_pct", 0.05)
         self.investment_ratio = 0.5
 
         # Notify settings
@@ -69,6 +70,7 @@ class UserBot:
             api=self.api, notifier=self.notifier, ticker=ticker,
             investment_ratio=self.investment_ratio,
             max_investment_krw=self.max_investment, max_loss_pct=self.loss_pct,
+            take_profit_pct=self.take_profit_pct,
         )
         self.coin_states[ticker] = CoinState(ticker)
 

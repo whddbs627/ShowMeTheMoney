@@ -42,6 +42,7 @@ class StrategyRequest(BaseModel):
     use_rsi: bool = True
     rsi_lower: float = 30.0
     loss_pct: float = 0.03
+    take_profit_pct: float = 0.05
     max_investment_krw: float = 100000
     min_investment_krw: float = 5000
 
@@ -98,6 +99,7 @@ async def get_me(user: dict = Depends(get_current_user)):
             "loss_pct": user["strategy_loss_pct"],
             "max_investment_krw": user["max_investment_krw"],
             "min_investment_krw": user.get("min_investment_krw", 5000),
+            "take_profit_pct": user.get("take_profit_pct", 0.05),
         },
     }
 

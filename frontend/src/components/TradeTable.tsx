@@ -36,7 +36,7 @@ export default function TradeTable({ trades }: { trades: TradeRecord[] }) {
                 <td>{t.ticker}</td>
                 <td>{t.price.toLocaleString()}</td>
                 <td>{t.amount_krw.toLocaleString()}원</td>
-                <td>{t.reason === "NEXT_DAY" ? "익일매도" : t.reason === "STOP_LOSS" ? "손절" : "-"}</td>
+                <td>{t.reason === "NEXT_DAY" ? "익일매도" : t.reason === "STOP_LOSS" ? "손절" : t.reason === "TAKE_PROFIT" ? "익절" : t.reason === "MANUAL" ? "수동" : t.reason === "MANUAL_LIMIT" ? "지정가" : "-"}</td>
                 <td style={{ color: t.pnl_pct && t.pnl_pct >= 0 ? "#22c55e" : "#ef4444" }}>
                   {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : "-"}
                 </td>

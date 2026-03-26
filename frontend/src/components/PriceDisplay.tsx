@@ -10,9 +10,10 @@ interface Props {
   onRemove: () => void;
   onTrade: () => void;
   lossPct: number;
+  takeProfitPct: number;
 }
 
-export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, lossPct }: Props) {
+export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, lossPct, takeProfitPct }: Props) {
   const [buyAmounts, setBuyAmounts] = useState<Record<string, string>>({});
   const [sellPrices, setSellPrices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -26,9 +27,10 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
     const c = coins.find((x) => x.ticker === ticker);
     const isHolding = c?.state === "holding";
     const stopLoss = c?.buy_price ? c.buy_price * (1 - lossPct) : null;
+    const takeProfit = c?.buy_price && takeProfitPct > 0 ? c.buy_price * (1 + takeProfitPct) : null;
     const pnl = isHolding && c?.current_price && c?.buy_price
       ? ((c.current_price - c.buy_price) / c.buy_price) * 100 : null;
-    return { ticker, c, isHolding: !!isHolding, stopLoss, pnl, price: c?.current_price || 0, rsi: c?.rsi || 0 };
+    return { ticker, c, isHolding: !!isHolding, stopLoss, takeProfit, pnl, price: c?.current_price || 0, rsi: c?.rsi || 0 };
   });
 
   // 정렬: 보유 코인 항상 상단 + 선택한 정렬 기준
@@ -124,6 +126,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
               <th>현재가</th>
               <th>매수목표</th>
               <th>손절가</th>
+              <th>익절가</th>
               <th>RSI</th>
               <th>추세</th>
               <th>매수가</th>
@@ -133,7 +136,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ ticker, c, isHolding, stopLoss, pnl }) => {
+            {rows.map(({ ticker, c, isHolding, stopLoss, takeProfit, pnl }) => {
               const isLoading = loading[ticker];
               return (
                 <tr key={ticker} style={{ background: isHolding ? "#22c55e08" : undefined }}>
@@ -146,6 +149,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
                   <td>{c?.current_price ? c.current_price.toLocaleString() : "-"}</td>
                   <td style={{ color: "#3b82f6" }}>{c?.target_price ? c.target_price.toLocaleString() : "-"}</td>
                   <td style={{ color: "#ef4444" }}>{stopLoss ? stopLoss.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "-"}</td>
+                  <td style={{ color: "#22c55e" }}>{takeProfit ? takeProfit.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "-"}</td>
                   <td style={{ color: c?.rsi && c.rsi < 30 ? "#ef4444" : undefined }}>{c?.rsi ? c.rsi.toFixed(1) : "-"}</td>
                   <td style={{ color: c?.ma_bullish ? "#22c55e" : c?.ma_bullish === false ? "#ef4444" : undefined }}>
                     {c?.ma_bullish == null ? "-" : c.ma_bullish ? "상승" : "하락"}

@@ -10,9 +10,9 @@ function formatUptime(seconds: number | null): string {
 }
 
 const PRESETS = [
-  { name: "안정형", desc: "소액·저위험", config: { k: 0.3, use_ma: true, use_rsi: true, rsi_lower: 35, loss_pct: 0.02, max_investment_krw: 50000, min_investment_krw: 5000 } },
-  { name: "균형형", desc: "추천 기본값", config: { k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, max_investment_krw: 100000, min_investment_krw: 5000 } },
-  { name: "공격형", desc: "고수익·고위험", config: { k: 0.7, use_ma: false, use_rsi: false, rsi_lower: 20, loss_pct: 0.05, max_investment_krw: 200000, min_investment_krw: 10000 } },
+  { name: "안정형", desc: "소액·저위험", config: { k: 0.3, use_ma: true, use_rsi: true, rsi_lower: 35, loss_pct: 0.02, take_profit_pct: 0.03, max_investment_krw: 50000, min_investment_krw: 5000 } },
+  { name: "균형형", desc: "추천 기본값", config: { k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000 } },
+  { name: "공격형", desc: "고수익·고위험", config: { k: 0.7, use_ma: false, use_rsi: false, rsi_lower: 20, loss_pct: 0.05, take_profit_pct: 0.1, max_investment_krw: 200000, min_investment_krw: 10000 } },
 ];
 
 interface Props {
@@ -25,7 +25,7 @@ interface Props {
 export default function StatusCard({ status, coinCount, holdingCount: extHoldingCount, onAction }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [strategy, setStrategy] = useState({ k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, max_investment_krw: 100000, min_investment_krw: 5000 });
+  const [strategy, setStrategy] = useState({ k: 0.5, use_ma: true, use_rsi: true, rsi_lower: 30, loss_pct: 0.03, take_profit_pct: 0.05, max_investment_krw: 100000, min_investment_krw: 5000 });
   const [showStrategy, setShowStrategy] = useState(false);
   const [strategyMsg, setStrategyMsg] = useState("");
 
@@ -116,6 +116,12 @@ export default function StatusCard({ status, coinCount, holdingCount: extHolding
               <span>손절</span>
               <input type="number" step="0.01" min="0.01" max="0.2" value={strategy.loss_pct}
                 onChange={(e) => setStrategy({ ...strategy, loss_pct: +e.target.value })}
+                style={{ width: 50, padding: "2px 4px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0", textAlign: "right" }} />
+            </div>
+            <div className="setting-row" style={{ padding: "2px 0" }}>
+              <span>익절</span>
+              <input type="number" step="0.01" min="0" max="0.5" value={strategy.take_profit_pct}
+                onChange={(e) => setStrategy({ ...strategy, take_profit_pct: +e.target.value })}
                 style={{ width: 50, padding: "2px 4px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0", textAlign: "right" }} />
             </div>
             <div className="setting-row" style={{ padding: "2px 0" }}>
