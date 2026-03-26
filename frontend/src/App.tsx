@@ -33,6 +33,7 @@ function App() {
   const [lossPct, setLossPct] = useState(0.03);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [showSettings, setShowSettings] = useState(false);
+  const closeSettings = () => setShowSettings(false);
 
   const fetchFast = useCallback(async () => {
     try {
@@ -84,7 +85,7 @@ function App() {
         </div>
       </div>
 
-      {showSettings && <div style={{ marginBottom: 16 }}><Settings /></div>}
+      <Settings open={showSettings} onClose={closeSettings} />
 
       <div className="tabs">
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (

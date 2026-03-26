@@ -48,6 +48,12 @@ class UserBot:
         self.max_investment = user.get("max_investment_krw", 100000)
         self.investment_ratio = 0.5
 
+        # Notify settings
+        self.notify_buy = bool(user.get("notify_buy", 1))
+        self.notify_sell = bool(user.get("notify_sell", 1))
+        self.notify_error = bool(user.get("notify_error", 1))
+        self.notify_start_stop = bool(user.get("notify_start_stop", 1))
+
     def _init_components(self, access_key: str, secret_key: str, discord_url: str):
         self.api = UpbitAPI(access_key, secret_key)
         self.notifier = Notifier(discord_url)
@@ -129,7 +135,7 @@ class UserBot:
         self.task = asyncio.create_task(self._loop())
 
         coins = ", ".join(self.tickers)
-        self._log(f"[START] Bot started\nCoins: {coins}")
+        self._log(f"[START] 봇 시작\n코인: {coins}", "start_stop")
 
     async def stop(self):
         if not self.running:
@@ -144,11 +150,20 @@ class UserBot:
         self.task = None
         self.started_at = None
         if self.notifier:
-            self._log("[STOP] Bot stopped")
+            self._log("[STOP] 봇 중지", "start_stop")
 
-    def _log(self, msg: str):
+    def _log(self, msg: str, category: str = "info"):
         logger.info(f"[User {self.user_id}] {msg}")
-        if self.notifier:
+        if not self.notifier:
+            return
+        should_send = (
+            (category == "buy" and self.notify_buy) or
+            (category == "sell" and self.notify_sell) or
+            (category == "error" and self.notify_error) or
+            (category == "start_stop" and self.notify_start_stop) or
+            (category == "info")
+        )
+        if should_send:
             self.notifier.send(msg)
 
     async def _loop(self):
@@ -168,7 +183,7 @@ class UserBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self._log(f"[ERROR] Bot loop: {e}")
+                self._log(f"[ERROR] Bot loop: {e}", "error")
                 await asyncio.sleep(60)
             await asyncio.sleep(10)
 
@@ -252,7 +267,7 @@ class UserBot:
                             "reason": None, "pnl_pct": None, "pnl_krw": None,
                         })
         except Exception as e:
-            self._log(f"[ERROR] [{ticker}] {e}")
+            self._log(f"[ERROR] [{ticker}] {e}", "error")
 
     def get_status(self) -> dict:
         uptime = (datetime.now(KST) - self.started_at).total_seconds() if self.started_at else None

@@ -39,6 +39,7 @@ export const login = (username: string, password: string) =>
 export const getMe = () => fetchJSON<{
   user_id: number; username: string; has_api_keys: boolean;
   discord_webhook_url: string;
+  notify_buy: boolean; notify_sell: boolean; notify_error: boolean; notify_start_stop: boolean;
   strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; max_investment_krw: number; min_investment_krw: number };
 }>("/auth/me");
 
@@ -47,9 +48,9 @@ export const saveApiKeys = (access_key: string, secret_key: string) =>
     method: "POST", body: JSON.stringify({ access_key, secret_key }),
   });
 
-export const saveDiscord = (webhook_url: string) =>
+export const saveDiscord = (webhook_url: string, notify_buy = true, notify_sell = true, notify_error = true, notify_start_stop = true) =>
   fetchJSON<{ message: string }>("/auth/discord", {
-    method: "POST", body: JSON.stringify({ webhook_url }),
+    method: "POST", body: JSON.stringify({ webhook_url, notify_buy, notify_sell, notify_error, notify_start_stop }),
   });
 
 export const saveStrategy = (strategy: Record<string, unknown>) =>

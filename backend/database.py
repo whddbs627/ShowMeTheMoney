@@ -25,11 +25,18 @@ async def init_db():
                 created_at      TEXT DEFAULT (datetime('now'))
             )
         """)
-        # Migration: add min_investment_krw if missing
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN min_investment_krw REAL DEFAULT 5000")
-        except Exception:
-            pass  # column already exists
+        # Migrations
+        for col, default in [
+            ("min_investment_krw", "REAL DEFAULT 5000"),
+            ("notify_buy", "INTEGER DEFAULT 1"),
+            ("notify_sell", "INTEGER DEFAULT 1"),
+            ("notify_error", "INTEGER DEFAULT 1"),
+            ("notify_start_stop", "INTEGER DEFAULT 1"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE users ADD COLUMN {col} {default}")
+            except Exception:
+                pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,6 +132,15 @@ async def update_user_strategy(user_id: int, strategy: dict):
                 strategy.get("min_investment_krw", 5000),
                 user_id,
             ),
+        )
+        await db.commit()
+
+
+async def update_user_notify_settings(user_id: int, buy: bool, sell: bool, error: bool, start_stop: bool):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET notify_buy=?, notify_sell=?, notify_error=?, notify_start_stop=? WHERE id=?",
+            (int(buy), int(sell), int(error), int(start_stop), user_id),
         )
         await db.commit()
 
