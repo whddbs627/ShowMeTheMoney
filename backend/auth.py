@@ -9,8 +9,8 @@ from cryptography.fernet import Fernet
 
 from backend.database import get_user_by_id
 
-# JWT
-SECRET_KEY = os.getenv("JWT_SECRET", "showmethemoney-jwt-secret-change-this")
+# JWT - 환경변수가 없으면 랜덤 생성 (서버 재시작 시 기존 토큰 무효화)
+SECRET_KEY = os.getenv("JWT_SECRET") or hashlib.sha256(os.urandom(32)).hexdigest()
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 

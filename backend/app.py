@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from pathlib import Path
@@ -8,11 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 서버 시작 시간 (프론트 자동 새로고침용)
 SERVER_START_TIME = str(int(time.time()))
 
 from backend.database import init_db
 from backend.engine import bot_manager
+from backend.security import RateLimitMiddleware, ErrorHandlerMiddleware
 from backend.routes import auth, bot, price, balance, trades, market, watchlist, leaderboard
 
 
@@ -25,9 +26,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ShowMeTheMoney", lifespan=lifespan)
 
+# 미들웨어 (순서 중요: 아래가 먼저 실행)
+app.add_middleware(ErrorHandlerMiddleware)
+app.add_middleware(RateLimitMiddleware, max_requests=120, window_seconds=60)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
