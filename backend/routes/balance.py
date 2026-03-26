@@ -5,7 +5,7 @@ import pyupbit
 
 from backend.engine import bot_manager
 from backend.auth import get_current_user, decrypt_key
-from backend.database import get_watchlist, insert_trade
+from backend.database import get_watchlist, insert_trade, get_demo_holdings, demo_buy, demo_sell, update_demo_mode, get_coin_targets, set_coin_target
 from upbit_api import UpbitAPI
 from datetime import datetime, timezone, timedelta
 
@@ -23,23 +23,42 @@ def _get_api(user: dict) -> UpbitAPI:
 
 @router.get("/balance")
 async def get_balance(user: dict = Depends(get_current_user)):
-    # 봇이 실행 중이면 봇의 API 사용
+    is_demo = bool(user.get("is_demo", 0))
+
+    if is_demo:
+        # 가상계좌 모드
+        demo_balance = user.get("demo_balance", 10000000)
+        holdings = await get_demo_holdings(user["id"])
+        tickers = await get_watchlist(user["id"])
+        total = demo_balance
+        coins = []
+        for ticker in tickers:
+            price = await asyncio.to_thread(pyupbit.get_current_price, ticker)
+            h = next((x for x in holdings if x["ticker"] == ticker), None)
+            vol = h["volume"] if h else 0
+            value = vol * (price or 0)
+            total += value
+            coins.append({
+                "ticker": ticker, "balance": vol,
+                "price": price or 0, "value_krw": round(value, 0),
+            })
+        return {"krw_balance": demo_balance, "coins": coins, "total_krw": round(total, 0), "is_demo": True}
+
+    # 실제 계좌 모드
     bot = bot_manager.get_bot(user["id"])
     if bot and bot.api:
         api = bot.api
         tickers = bot.tickers
     else:
-        # 봇 없으면 직접 API 생성
         try:
             api = _get_api(user)
         except HTTPException:
-            return {"krw_balance": None, "coins": [], "total_krw": None}
+            return {"krw_balance": None, "coins": [], "total_krw": None, "is_demo": False}
         tickers = await get_watchlist(user["id"])
 
     krw = await asyncio.to_thread(api.get_krw_balance)
     total = krw or 0
     coins = []
-
     for ticker in tickers:
         balance = await asyncio.to_thread(api.get_balance, ticker)
         price = await asyncio.to_thread(api.get_current_price, ticker)
@@ -50,7 +69,7 @@ async def get_balance(user: dict = Depends(get_current_user)):
             "price": price or 0, "value_krw": round(value, 0),
         })
 
-    return {"krw_balance": krw, "coins": coins, "total_krw": round(total, 0)}
+    return {"krw_balance": krw, "coins": coins, "total_krw": round(total, 0), "is_demo": False}
 
 
 # === 수동 매수/매도 ===
@@ -68,6 +87,27 @@ class SellRequest(BaseModel):
 
 @router.post("/order/buy")
 async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
+    is_demo = bool(user.get("is_demo", 0))
+
+    if is_demo:
+        if req.amount_krw < 5000:
+            raise HTTPException(400, "최소 5,000원 이상")
+        demo_bal = user.get("demo_balance", 0)
+        if req.amount_krw > demo_bal:
+            raise HTTPException(400, "가상 잔고가 부족합니다")
+        price = await asyncio.to_thread(pyupbit.get_current_price, req.ticker)
+        if not price:
+            raise HTTPException(400, "가격 조회 실패")
+        buy_price = req.limit_price or price
+        await demo_buy(user["id"], req.ticker, buy_price, req.amount_krw)
+        await insert_trade(user["id"], {
+            "timestamp": datetime.now(KST).isoformat(),
+            "side": "BUY", "ticker": req.ticker, "price": buy_price,
+            "amount_krw": round(req.amount_krw, 0), "volume": req.amount_krw / buy_price,
+            "reason": "DEMO", "pnl_pct": None, "pnl_krw": None,
+        })
+        return {"message": f"[가상] {req.ticker} {req.amount_krw:,.0f}원 매수", "price": buy_price}
+
     api = _get_api(user)
 
     if req.amount_krw < 5000:
@@ -106,6 +146,25 @@ async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
 
 @router.post("/order/sell")
 async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
+    is_demo = bool(user.get("is_demo", 0))
+
+    if is_demo:
+        price = await asyncio.to_thread(pyupbit.get_current_price, req.ticker)
+        if not price:
+            raise HTTPException(400, "가격 조회 실패")
+        sell_price = req.limit_price or price
+        result = await demo_sell(user["id"], req.ticker, sell_price)
+        if "error" in result:
+            raise HTTPException(400, result["error"])
+        await insert_trade(user["id"], {
+            "timestamp": datetime.now(KST).isoformat(),
+            "side": "SELL", "ticker": req.ticker, "price": sell_price,
+            "amount_krw": round(result["sell_amount"], 0), "volume": result["volume"],
+            "reason": "DEMO", "pnl_pct": round(result["pnl_pct"], 2),
+            "pnl_krw": round(result["sell_amount"] * result["pnl_pct"] / 100, 0),
+        })
+        return {"message": f"[가상] {req.ticker} 매도 완료", "price": sell_price, "pnl_pct": round(result["pnl_pct"], 2)}
+
     api = _get_api(user)
 
     balance = await asyncio.to_thread(api.get_balance, req.ticker)
@@ -179,3 +238,39 @@ async def cancel_order(req: CancelRequest, user: dict = Depends(get_current_user
     if result is None:
         raise HTTPException(500, "주문 취소 실패")
     return {"message": "주문이 취소되었습니다"}
+
+
+# === 데모 모드 ===
+
+class DemoModeRequest(BaseModel):
+    is_demo: bool
+    demo_balance: float = 10000000
+
+
+@router.post("/demo/toggle")
+async def toggle_demo(req: DemoModeRequest, user: dict = Depends(get_current_user)):
+    if req.demo_balance < 0 or req.demo_balance > 10000000000:
+        raise HTTPException(400, "잔고는 0 ~ 100억 사이로 설정하세요")
+    await update_demo_mode(user["id"], req.is_demo, req.demo_balance)
+    mode = "가상계좌" if req.is_demo else "실제계좌"
+    return {"message": f"{mode} 모드로 전환되었습니다"}
+
+
+# === 코인별 타겟 가격 ===
+
+class CoinTargetRequest(BaseModel):
+    ticker: str
+    buy_target: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+
+
+@router.get("/targets")
+async def list_targets(user: dict = Depends(get_current_user)):
+    return await get_coin_targets(user["id"])
+
+
+@router.post("/targets")
+async def save_target(req: CoinTargetRequest, user: dict = Depends(get_current_user)):
+    await set_coin_target(user["id"], req.ticker, req.buy_target, req.stop_loss, req.take_profit)
+    return {"message": f"{req.ticker} 가격 설정 저장"}

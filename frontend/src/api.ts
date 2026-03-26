@@ -39,6 +39,7 @@ export const login = (username: string, password: string) =>
 export const getMe = () => fetchJSON<{
   user_id: number; username: string; has_api_keys: boolean;
   discord_webhook_url: string;
+  is_demo: boolean; demo_balance: number;
   notify_buy: boolean; notify_sell: boolean; notify_error: boolean; notify_start_stop: boolean;
   strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; take_profit_pct: number; max_investment_krw: number; min_investment_krw: number; strategy_type: string };
 }>("/auth/me");
@@ -87,6 +88,19 @@ export const manualBuy = (ticker: string, amount_krw: number, limit_price?: numb
 export const manualSell = (ticker: string, limit_price?: number) =>
   fetchJSON<{ message: string; price: number; pnl_pct: number }>("/order/sell", {
     method: "POST", body: JSON.stringify({ ticker, limit_price: limit_price || null }),
+  });
+
+// Demo mode
+export const toggleDemo = (is_demo: boolean, demo_balance: number) =>
+  fetchJSON<{ message: string }>("/demo/toggle", {
+    method: "POST", body: JSON.stringify({ is_demo, demo_balance }),
+  });
+
+// Coin targets
+export const getTargets = () => fetchJSON<Record<string, { buy_target: number | null; stop_loss: number | null; take_profit: number | null }>>("/targets");
+export const saveTarget = (ticker: string, buy_target: number | null, stop_loss: number | null, take_profit: number | null) =>
+  fetchJSON<{ message: string }>("/targets", {
+    method: "POST", body: JSON.stringify({ ticker, buy_target, stop_loss, take_profit }),
   });
 
 // Orders

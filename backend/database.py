@@ -34,6 +34,8 @@ async def init_db():
             ("notify_start_stop", "INTEGER DEFAULT 1"),
             ("take_profit_pct", "REAL DEFAULT 0.05"),
             ("strategy_type", "TEXT DEFAULT 'volatility_breakout'"),
+            ("is_demo", "INTEGER DEFAULT 0"),
+            ("demo_balance", "REAL DEFAULT 10000000"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col} {default}")
@@ -71,6 +73,27 @@ async def init_db():
                 krw_balance REAL DEFAULT 0,
                 coin_value  REAL DEFAULT 0,
                 total_krw   REAL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS demo_holdings (
+                user_id     INTEGER NOT NULL,
+                ticker      TEXT NOT NULL,
+                volume      REAL DEFAULT 0,
+                avg_price   REAL DEFAULT 0,
+                PRIMARY KEY (user_id, ticker),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS coin_targets (
+                user_id     INTEGER NOT NULL,
+                ticker      TEXT NOT NULL,
+                buy_target  REAL,
+                stop_loss   REAL,
+                take_profit REAL,
+                PRIMARY KEY (user_id, ticker),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
@@ -275,5 +298,103 @@ async def remove_from_watchlist(user_id: int, ticker: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "DELETE FROM watchlist WHERE user_id=? AND ticker=?", (user_id, ticker)
+        )
+        await db.commit()
+
+
+# === Demo Mode ===
+async def update_demo_mode(user_id: int, is_demo: bool, demo_balance: float):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET is_demo=?, demo_balance=? WHERE id=?",
+            (int(is_demo), demo_balance, user_id),
+        )
+        # 데모 모드 전환 시 보유 코인 초기화
+        if is_demo:
+            await db.execute("DELETE FROM demo_holdings WHERE user_id=?", (user_id,))
+        await db.commit()
+
+
+async def get_demo_holdings(user_id: int) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM demo_holdings WHERE user_id=?", (user_id,)
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def demo_buy(user_id: int, ticker: str, price: float, amount_krw: float):
+    volume = amount_krw / price
+    async with aiosqlite.connect(DB_PATH) as db:
+        # 잔고 차감
+        await db.execute(
+            "UPDATE users SET demo_balance = demo_balance - ? WHERE id=?",
+            (amount_krw, user_id),
+        )
+        # 기존 보유 확인
+        cursor = await db.execute(
+            "SELECT volume, avg_price FROM demo_holdings WHERE user_id=? AND ticker=?",
+            (user_id, ticker),
+        )
+        row = await cursor.fetchone()
+        if row:
+            old_vol, old_avg = row[0], row[1]
+            new_vol = old_vol + volume
+            new_avg = (old_vol * old_avg + volume * price) / new_vol
+            await db.execute(
+                "UPDATE demo_holdings SET volume=?, avg_price=? WHERE user_id=? AND ticker=?",
+                (new_vol, new_avg, user_id, ticker),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO demo_holdings (user_id, ticker, volume, avg_price) VALUES (?,?,?,?)",
+                (user_id, ticker, volume, price),
+            )
+        await db.commit()
+
+
+async def demo_sell(user_id: int, ticker: str, price: float) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT volume, avg_price FROM demo_holdings WHERE user_id=? AND ticker=?",
+            (user_id, ticker),
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] <= 0:
+            return {"error": "보유량이 없습니다"}
+        volume, avg_price = row[0], row[1]
+        sell_amount = volume * price
+        pnl_pct = ((price - avg_price) / avg_price) * 100
+        # 잔고 증가
+        await db.execute(
+            "UPDATE users SET demo_balance = demo_balance + ? WHERE id=?",
+            (sell_amount, user_id),
+        )
+        await db.execute(
+            "DELETE FROM demo_holdings WHERE user_id=? AND ticker=?",
+            (user_id, ticker),
+        )
+        await db.commit()
+        return {"volume": volume, "avg_price": avg_price, "sell_amount": sell_amount, "pnl_pct": pnl_pct}
+
+
+# === Coin Targets ===
+async def get_coin_targets(user_id: int) -> dict[str, dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM coin_targets WHERE user_id=?", (user_id,)
+        )
+        rows = await cursor.fetchall()
+        return {r["ticker"]: dict(r) for r in rows}
+
+
+async def set_coin_target(user_id: int, ticker: str, buy_target: float | None, stop_loss: float | None, take_profit: float | None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT OR REPLACE INTO coin_targets (user_id, ticker, buy_target, stop_loss, take_profit)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, ticker, buy_target, stop_loss, take_profit),
         )
         await db.commit()

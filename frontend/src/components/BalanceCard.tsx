@@ -1,4 +1,6 @@
+import { useState, useEffect } from "react";
 import type { BalanceInfo, PnlPoint } from "../types";
+import { getMe, toggleDemo } from "../api";
 
 interface Props {
   balance: BalanceInfo | null;
@@ -6,6 +8,33 @@ interface Props {
 }
 
 export default function BalanceCard({ balance, pnl }: Props) {
+  const [isDemo, setIsDemo] = useState(false);
+  const [demoAmount, setDemoAmount] = useState("10000000");
+  const [showDemoSetup, setShowDemoSetup] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    getMe().then((data) => {
+      setIsDemo(data.is_demo);
+      setDemoAmount(String(data.demo_balance));
+    });
+  }, []);
+
+  const handleToggle = async () => {
+    const newDemo = !isDemo;
+    const amount = parseFloat(demoAmount) || 10000000;
+    try {
+      await toggleDemo(newDemo, amount);
+      setIsDemo(newDemo);
+      setMsg(newDemo ? "가상계좌 모드 활성화" : "실제계좌 모드 전환");
+      setShowDemoSetup(false);
+      setTimeout(() => setMsg(""), 2000);
+      window.location.reload();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "전환 실패");
+    }
+  };
+
   if (!balance) return <div className="card">Loading...</div>;
 
   const holdingCoins = balance.coins.filter((c) => c.value_krw > 0);
@@ -13,8 +42,38 @@ export default function BalanceCard({ balance, pnl }: Props) {
 
   return (
     <div className="card">
-      <h3>자산 / 수익</h3>
-      <div className="info-row">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>자산 / 수익</h3>
+        <button onClick={() => setShowDemoSetup(!showDemoSetup)}
+          style={{
+            padding: "3px 8px", fontSize: 10, borderRadius: 4, border: "none", cursor: "pointer",
+            background: isDemo ? "#eab30822" : "#16162a",
+            color: isDemo ? "#eab308" : "#888",
+          }}>
+          {isDemo ? "가상계좌" : "실제계좌"}
+        </button>
+      </div>
+
+      {showDemoSetup && (
+        <div style={{ marginTop: 8, padding: 8, background: "#16162a", borderRadius: 6 }}>
+          {!isDemo && (
+            <div style={{ marginBottom: 6 }}>
+              <input type="number" placeholder="가상 잔고 (원)" value={demoAmount}
+                onChange={(e) => setDemoAmount(e.target.value)}
+                style={{ width: "100%", padding: "4px 8px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0", boxSizing: "border-box" }} />
+              <p style={{ color: "#666", fontSize: 10, margin: "4px 0 0" }}>최대 100억원</p>
+            </div>
+          )}
+          <button onClick={handleToggle}
+            style={{ width: "100%", padding: "6px", fontSize: 11, borderRadius: 4, border: "none", cursor: "pointer", background: isDemo ? "#3b82f6" : "#eab308", color: isDemo ? "#fff" : "#000" }}>
+            {isDemo ? "실제계좌로 전환" : "가상계좌로 전환"}
+          </button>
+        </div>
+      )}
+
+      {msg && <div style={{ color: "#22c55e", fontSize: 11, marginTop: 4 }}>{msg}</div>}
+
+      <div className="info-row" style={{ marginTop: 8 }}>
         <span>보유 원화</span>
         <span>{balance.krw_balance != null ? `${balance.krw_balance.toLocaleString()}원` : "-"}</span>
       </div>
