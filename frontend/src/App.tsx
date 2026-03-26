@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist } from "./api";
 import type { BotStatus, BalanceInfo, TradeRecord, PnlPoint } from "./types";
+import AuthPage from "./components/AuthPage";
 import StatusCard from "./components/StatusCard";
 import PriceDisplay from "./components/PriceDisplay";
 import BalanceCard from "./components/BalanceCard";
@@ -10,82 +11,76 @@ import PnlChart from "./components/PnlChart";
 import CoinSearch from "./components/CoinSearch";
 import Watchlist from "./components/Watchlist";
 import TopGainers from "./components/TopGainers";
+import Settings from "./components/Settings";
+import Leaderboard from "./components/Leaderboard";
 import "./App.css";
 
+type Tab = "dashboard" | "market" | "settings" | "leaderboard";
+
 function App() {
+  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
+  const [username, setUsername] = useState("");
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [balance, setBalance] = useState<BalanceInfo | null>(null);
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [pnl, setPnl] = useState<PnlPoint[]>([]);
   const [watchlistTickers, setWatchlistTickers] = useState<string[]>([]);
-  const [tab, setTab] = useState<"dashboard" | "market">("dashboard");
+  const [tab, setTab] = useState<Tab>("dashboard");
 
   const fetchFast = useCallback(async () => {
     try {
-      setStatus(await getBotStatus());
-    } catch (e) {
-      console.error("Failed to fetch status", e);
-    }
+      setStatus(await getBotStatus() as BotStatus);
+    } catch { /* ignore */ }
   }, []);
 
   const fetchSlow = useCallback(async () => {
     try {
-      const [b, t, pnlData] = await Promise.all([getBalance(), getTrades(), getPnl()]);
-      setBalance(b);
-      setTrades(t);
-      setPnl(pnlData);
-    } catch (e) {
-      console.error("Failed to fetch data", e);
-    }
+      const [b, t, p] = await Promise.all([getBalance(), getTrades(), getPnl()]);
+      setBalance(b as BalanceInfo);
+      setTrades(t as TradeRecord[]);
+      setPnl(p as PnlPoint[]);
+    } catch { /* ignore */ }
   }, []);
 
   const fetchWatchlist = useCallback(async () => {
     try {
       const data = await getWatchlist();
       setWatchlistTickers(data.tickers);
-    } catch (e) {
-      console.error("Failed to fetch watchlist", e);
-    }
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
+    if (!token) return;
     fetchFast();
     fetchSlow();
     fetchWatchlist();
+    const fast = setInterval(fetchFast, 5000);
+    const slow = setInterval(fetchSlow, 30000);
+    return () => { clearInterval(fast); clearInterval(slow); };
+  }, [token, fetchFast, fetchSlow, fetchWatchlist]);
 
-    const fastInterval = setInterval(fetchFast, 5000);
-    const slowInterval = setInterval(fetchSlow, 30000);
+  const handleLogin = (t: string, u: string) => { setToken(t); setUsername(u); };
+  const handleLogout = () => { localStorage.removeItem("token"); setToken(null); setUsername(""); };
+  const handleAction = () => { setTimeout(() => { fetchFast(); fetchSlow(); }, 500); };
 
-    return () => {
-      clearInterval(fastInterval);
-      clearInterval(slowInterval);
-    };
-  }, [fetchFast, fetchSlow, fetchWatchlist]);
-
-  const handleAction = () => {
-    setTimeout(() => {
-      fetchFast();
-      fetchSlow();
-    }, 500);
-  };
+  if (!token) return <AuthPage onLogin={handleLogin} />;
 
   return (
     <div className="container">
-      <h1 className="title">ShowMeTheMoney</h1>
+      <div className="header">
+        <h1 className="title">ShowMeTheMoney</h1>
+        <div className="header-right">
+          <span style={{ color: "#888", fontSize: 13 }}>{username}</span>
+          <button className="btn-logout" onClick={handleLogout}>Logout</button>
+        </div>
+      </div>
 
       <div className="tabs">
-        <button
-          className={`tab ${tab === "dashboard" ? "tab-active" : ""}`}
-          onClick={() => setTab("dashboard")}
-        >
-          Dashboard
-        </button>
-        <button
-          className={`tab ${tab === "market" ? "tab-active" : ""}`}
-          onClick={() => setTab("market")}
-        >
-          Market
-        </button>
+        {(["dashboard", "market", "settings", "leaderboard"] as Tab[]).map((t) => (
+          <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
+            {t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
 
       {tab === "dashboard" && (
@@ -110,6 +105,9 @@ function App() {
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>
       )}
+
+      {tab === "settings" && <Settings />}
+      {tab === "leaderboard" && <Leaderboard />}
     </div>
   );
 }

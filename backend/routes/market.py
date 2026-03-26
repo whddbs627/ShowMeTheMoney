@@ -1,13 +1,18 @@
 import asyncio
+import time
 from fastapi import APIRouter, Query
 import pyupbit
+import requests
 
 router = APIRouter(tags=["market"])
+
+# Cache for top gainers (refresh every 60s)
+_gainers_cache: list = []
+_gainers_ts: float = 0
 
 
 @router.get("/market/coins")
 async def search_coins(q: str = Query("", description="Search keyword")):
-    """업비트 KRW 마켓 코인 검색"""
     tickers = await asyncio.to_thread(pyupbit.get_tickers, fiat="KRW")
     if not tickers:
         return []
@@ -19,47 +24,45 @@ async def search_coins(q: str = Query("", description="Search keyword")):
     return [{"ticker": t, "name": t.replace("KRW-", "")} for t in sorted(tickers)]
 
 
+def _fetch_all_tickers() -> list[dict]:
+    """Upbit API로 전체 코인 정보를 한 번에 가져옴 (빠름)"""
+    try:
+        tickers = pyupbit.get_tickers(fiat="KRW")
+        if not tickers:
+            return []
+
+        markets = ",".join(tickers)
+        resp = requests.get(
+            f"https://api.upbit.com/v1/ticker?markets={markets}",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        results = []
+        for item in data:
+            results.append({
+                "ticker": item["market"],
+                "name": item["market"].replace("KRW-", ""),
+                "current_price": item.get("trade_price", 0),
+                "change_pct": round((item.get("signed_change_rate", 0)) * 100, 2),
+                "volume_krw": round(item.get("acc_trade_price_24h", 0), 0),
+            })
+        return results
+    except Exception:
+        return []
+
+
 @router.get("/market/top-gainers")
 async def get_top_gainers(limit: int = Query(20, ge=1, le=50)):
-    """24시간 상승률 상위 코인 추천"""
-    tickers = await asyncio.to_thread(pyupbit.get_tickers, fiat="KRW")
-    if not tickers:
-        return []
+    global _gainers_cache, _gainers_ts
 
-    # 전체 현재가 + 전일 종가 조회
-    prices = await asyncio.to_thread(pyupbit.get_current_price, tickers)
-    if not prices:
-        return []
+    now = time.time()
+    if now - _gainers_ts < 60 and _gainers_cache:
+        return _gainers_cache[:limit]
 
-    results = []
-    for ticker in tickers:
-        try:
-            current = prices.get(ticker)
-            if not current:
-                continue
-
-            # 개별 OHLCV로 전일 종가 가져오기
-            df = await asyncio.to_thread(pyupbit.get_ohlcv, ticker, interval="day", count=2)
-            if df is None or len(df) < 2:
-                continue
-
-            prev_close = df.iloc[-2]["close"]
-            if prev_close <= 0:
-                continue
-
-            change_pct = ((current - prev_close) / prev_close) * 100
-
-            results.append({
-                "ticker": ticker,
-                "name": ticker.replace("KRW-", ""),
-                "current_price": current,
-                "prev_close": prev_close,
-                "change_pct": round(change_pct, 2),
-            })
-
-            await asyncio.sleep(0.1)  # rate limit
-        except Exception:
-            continue
-
+    results = await asyncio.to_thread(_fetch_all_tickers)
     results.sort(key=lambda x: x["change_pct"], reverse=True)
+    _gainers_cache = results
+    _gainers_ts = now
     return results[:limit]

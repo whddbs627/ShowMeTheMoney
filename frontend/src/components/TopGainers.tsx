@@ -20,7 +20,7 @@ export default function TopGainers({ watchlist, onAdd }: Props) {
   const fetchGainers = async () => {
     setLoading(true);
     try {
-      setGainers(await getTopGainers(20));
+      setGainers(await getTopGainers(20) as Gainer[]);
     } catch {
       setGainers([]);
     }

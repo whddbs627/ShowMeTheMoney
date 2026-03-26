@@ -6,12 +6,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import config
 from upbit_api import UpbitAPI
 from strategy import should_buy, calc_target_price, calc_rsi, check_ma_filter
 from trader import Trader
 from notifier import Notifier
 from backend.database import insert_trade, get_watchlist
+from backend.auth import decrypt_key
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ KST = timezone(timedelta(hours=9))
 
 
 class CoinState:
-    """Per-coin cached state for API reads"""
     def __init__(self, ticker: str):
         self.ticker = ticker
         self.current_price: float | None = None
@@ -28,8 +27,11 @@ class CoinState:
         self.ma_bullish: bool | None = None
 
 
-class BotEngine:
-    def __init__(self):
+class UserBot:
+    """Per-user bot instance"""
+
+    def __init__(self, user_id: int, user: dict):
+        self.user_id = user_id
         self.running = False
         self.task: asyncio.Task | None = None
         self.api: UpbitAPI | None = None
@@ -37,45 +39,75 @@ class BotEngine:
         self.traders: dict[str, Trader] = {}
         self.coin_states: dict[str, CoinState] = {}
         self.started_at: datetime | None = None
+        self.tickers: list[str] = []
 
-    def _init_components(self):
-        self.api = UpbitAPI(config.UPBIT_ACCESS_KEY, config.UPBIT_SECRET_KEY)
-        self.notifier = Notifier(config.DISCORD_WEBHOOK_URL)
+        # User strategy config
+        self.k = user.get("strategy_k", 0.5)
+        self.use_ma = bool(user.get("strategy_ma", 1))
+        self.use_rsi = bool(user.get("strategy_rsi", 1))
+        self.rsi_lower = user.get("strategy_rsi_lower", 30.0)
+        self.loss_pct = user.get("strategy_loss_pct", 0.03)
+        self.max_investment = user.get("max_investment_krw", 100000)
+        self.investment_ratio = 0.5
+
+    def _init_components(self, access_key: str, secret_key: str, discord_url: str):
+        self.api = UpbitAPI(access_key, secret_key)
+        self.notifier = Notifier(discord_url)
         self.traders = {}
         self.coin_states = {}
 
-        for ticker in config.TICKERS:
-            self.traders[ticker] = Trader(
-                api=self.api,
-                notifier=self.notifier,
-                ticker=ticker,
-                investment_ratio=config.INVESTMENT_RATIO,
-                max_investment_krw=config.MAX_INVESTMENT_KRW,
-                max_loss_pct=config.MAX_LOSS_PCT,
-            )
-            self.coin_states[ticker] = CoinState(ticker)
+        for ticker in self.tickers:
+            self._add_coin(ticker)
 
-    async def start(self):
+    def _add_coin(self, ticker: str):
+        if ticker in self.traders or not self.api:
+            return
+        self.traders[ticker] = Trader(
+            api=self.api,
+            notifier=self.notifier,
+            ticker=ticker,
+            investment_ratio=self.investment_ratio,
+            max_investment_krw=self.max_investment,
+            max_loss_pct=self.loss_pct,
+        )
+        self.coin_states[ticker] = CoinState(ticker)
+
+    def _remove_coin(self, ticker: str):
+        trader = self.traders.get(ticker)
+        if trader and trader.holding:
+            return
+        self.traders.pop(ticker, None)
+        self.coin_states.pop(ticker, None)
+
+    async def start(self, user: dict):
         if self.running:
             return
 
-        # watchlist DB에서 코인 목록 로드 (있으면 config 덮어쓰기)
-        watchlist = await get_watchlist()
-        if watchlist:
-            config.TICKERS = watchlist
+        enc_access = user.get("encrypted_access_key")
+        enc_secret = user.get("encrypted_secret_key")
+        if not enc_access or not enc_secret:
+            raise ValueError("API keys not configured")
 
-        self._init_components()
+        access_key = decrypt_key(enc_access)
+        secret_key = decrypt_key(enc_secret)
+        discord_url = user.get("discord_webhook_url", "")
 
-        for ticker, trader in self.traders.items():
+        self.tickers = await get_watchlist(self.user_id)
+        if not self.tickers:
+            from config import DEFAULT_TICKERS
+            self.tickers = DEFAULT_TICKERS[:]
+
+        self._init_components(access_key, secret_key, discord_url)
+
+        for trader in self.traders.values():
             await asyncio.to_thread(trader.sync_position)
 
         self.running = True
         self.started_at = datetime.now(KST)
         self.task = asyncio.create_task(self._loop())
 
-        coins = ", ".join(config.TICKERS)
+        coins = ", ".join(self.tickers)
         self.notifier.send(f"[START] Bot started\nCoins: {coins}")
-        logger.info(f"Bot engine started with {len(config.TICKERS)} coins")
 
     async def stop(self):
         if not self.running:
@@ -89,27 +121,29 @@ class BotEngine:
                 pass
         self.task = None
         self.started_at = None
-        self.notifier.send("[STOP] Bot stopped")
-        logger.info("Bot engine stopped")
+        if self.notifier:
+            self.notifier.send("[STOP] Bot stopped")
 
     async def _loop(self):
         while self.running:
             try:
-                for ticker in config.TICKERS:
+                for ticker in list(self.tickers):
                     if not self.running:
                         break
                     await self._tick(ticker)
-                    await asyncio.sleep(0.5)  # API rate limit buffer
+                    await asyncio.sleep(0.5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.exception(f"Bot loop error: {e}")
+                logger.exception(f"[User {self.user_id}] Bot loop error: {e}")
                 await asyncio.sleep(60)
-            await asyncio.sleep(config.CHECK_INTERVAL_SEC)
+            await asyncio.sleep(10)
 
     async def _tick(self, ticker: str):
-        trader = self.traders[ticker]
-        state = self.coin_states[ticker]
+        trader = self.traders.get(ticker)
+        state = self.coin_states.get(ticker)
+        if not trader or not state:
+            return
 
         try:
             df_short = await asyncio.to_thread(self.api.get_ohlcv, ticker, "day", 2)
@@ -120,7 +154,7 @@ class BotEngine:
                 return
 
             state.current_price = price
-            state.target_price = calc_target_price(df_short, config.K)
+            state.target_price = calc_target_price(df_short, self.k)
             state.rsi = calc_rsi(df_long)
             state.ma_bullish = check_ma_filter(df_long)
 
@@ -132,46 +166,35 @@ class BotEngine:
                     pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100
                     now_date = datetime.now(KST).date()
                     reason = "NEXT_DAY" if buy_date_snapshot and now_date > buy_date_snapshot else "STOP_LOSS"
-                    await insert_trade({
+                    await insert_trade(self.user_id, {
                         "timestamp": datetime.now(KST).isoformat(),
-                        "side": "SELL",
-                        "ticker": ticker,
-                        "price": price,
-                        "amount_krw": 0,
-                        "reason": reason,
-                        "pnl_pct": round(pnl_pct, 2),
-                        "pnl_krw": 0,
+                        "side": "SELL", "ticker": ticker, "price": price,
+                        "amount_krw": 0, "reason": reason,
+                        "pnl_pct": round(pnl_pct, 2), "pnl_krw": 0,
                     })
             else:
                 signal = should_buy(
-                    df_short, df_long, price, config.K,
-                    config.USE_MA_FILTER, config.USE_RSI_FILTER,
-                    config.RSI_LOWER_BOUND,
+                    df_short, df_long, price, self.k,
+                    self.use_ma, self.use_rsi, self.rsi_lower,
                 )
                 if signal:
-                    logger.info(f"[{ticker}] Buy signal at {price:,.0f} KRW")
-                    krw_before = await asyncio.to_thread(self.api.get_krw_balance)
-                    amount = min((krw_before or 0) * config.INVESTMENT_RATIO, config.MAX_INVESTMENT_KRW)
+                    krw = await asyncio.to_thread(self.api.get_krw_balance)
+                    amount = min((krw or 0) * self.investment_ratio, self.max_investment)
                     bought = await asyncio.to_thread(trader.check_and_buy, price, signal)
                     if bought:
-                        await insert_trade({
+                        await insert_trade(self.user_id, {
                             "timestamp": datetime.now(KST).isoformat(),
-                            "side": "BUY",
-                            "ticker": ticker,
-                            "price": price,
-                            "amount_krw": round(amount, 0),
-                            "reason": None,
-                            "pnl_pct": None,
-                            "pnl_krw": None,
+                            "side": "BUY", "ticker": ticker, "price": price,
+                            "amount_krw": round(amount, 0), "reason": None,
+                            "pnl_pct": None, "pnl_krw": None,
                         })
         except Exception as e:
-            logger.error(f"[{ticker}] Tick error: {e}")
+            logger.error(f"[User {self.user_id}][{ticker}] Tick error: {e}")
 
     def get_status(self) -> dict:
         uptime = (datetime.now(KST) - self.started_at).total_seconds() if self.started_at else None
-
         coins = []
-        for ticker in config.TICKERS:
+        for ticker in self.tickers:
             trader = self.traders.get(ticker)
             state = self.coin_states.get(ticker)
             coins.append({
@@ -183,36 +206,26 @@ class BotEngine:
                 "rsi": state.rsi if state else None,
                 "ma_bullish": state.ma_bullish if state else None,
             })
-
-        return {
-            "running": self.running,
-            "uptime_seconds": uptime,
-            "coins": coins,
-        }
-
-    def _add_coin(self, ticker: str):
-        if ticker in self.traders:
-            return
-        if self.api:
-            self.traders[ticker] = Trader(
-                api=self.api,
-                notifier=self.notifier,
-                ticker=ticker,
-                investment_ratio=config.INVESTMENT_RATIO,
-                max_investment_krw=config.MAX_INVESTMENT_KRW,
-                max_loss_pct=config.MAX_LOSS_PCT,
-            )
-            self.coin_states[ticker] = CoinState(ticker)
-            logger.info(f"Added coin: {ticker}")
-
-    def _remove_coin(self, ticker: str):
-        trader = self.traders.get(ticker)
-        if trader and trader.holding:
-            logger.warning(f"Cannot remove {ticker}: currently holding position")
-            return
-        self.traders.pop(ticker, None)
-        self.coin_states.pop(ticker, None)
-        logger.info(f"Removed coin: {ticker}")
+        return {"running": self.running, "uptime_seconds": uptime, "coins": coins}
 
 
-engine = BotEngine()
+class BotManager:
+    """Manages all user bots"""
+
+    def __init__(self):
+        self.bots: dict[int, UserBot] = {}
+
+    def get_bot(self, user_id: int) -> UserBot | None:
+        return self.bots.get(user_id)
+
+    def get_or_create_bot(self, user_id: int, user: dict) -> UserBot:
+        if user_id not in self.bots:
+            self.bots[user_id] = UserBot(user_id, user)
+        return self.bots[user_id]
+
+    async def stop_all(self):
+        for bot in self.bots.values():
+            await bot.stop()
+
+
+bot_manager = BotManager()
