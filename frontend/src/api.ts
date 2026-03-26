@@ -70,13 +70,13 @@ export const getTrades = (limit = 50) => fetchJSON<unknown[]>(`/trades?limit=${l
 export const getPnl = () => fetchJSON<unknown[]>("/trades/pnl");
 
 // Manual orders
-export const manualBuy = (ticker: string, amount_krw: number) =>
+export const manualBuy = (ticker: string, amount_krw: number, limit_price?: number) =>
   fetchJSON<{ message: string; price: number }>("/order/buy", {
-    method: "POST", body: JSON.stringify({ ticker, amount_krw }),
+    method: "POST", body: JSON.stringify({ ticker, amount_krw, limit_price: limit_price || null }),
   });
-export const manualSell = (ticker: string) =>
+export const manualSell = (ticker: string, limit_price?: number) =>
   fetchJSON<{ message: string; price: number; pnl_pct: number }>("/order/sell", {
-    method: "POST", body: JSON.stringify({ ticker, sell_all: true }),
+    method: "POST", body: JSON.stringify({ ticker, limit_price: limit_price || null }),
   });
 
 // Market (no auth needed for search/gainers)

@@ -14,6 +14,7 @@ interface Props {
 
 export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, lossPct }: Props) {
   const [buyAmounts, setBuyAmounts] = useState<Record<string, string>>({});
+  const [sellPrices, setSellPrices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("default");
@@ -59,9 +60,13 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
   };
 
   const handleSell = async (ticker: string) => {
+    const limitPrice = sellPrices[ticker] ? parseFloat(sellPrices[ticker]) : undefined;
     setLoading((p) => ({ ...p, [ticker]: true }));
-    try { showMsg((await manualSell(ticker)).message); onTrade(); }
-    catch (e) { showMsg(e instanceof Error ? e.message : "매도 실패"); }
+    try {
+      showMsg((await manualSell(ticker, limitPrice)).message);
+      setSellPrices((p) => ({ ...p, [ticker]: "" }));
+      onTrade();
+    } catch (e) { showMsg(e instanceof Error ? e.message : "매도 실패"); }
     setLoading((p) => ({ ...p, [ticker]: false }));
   };
 
@@ -149,10 +154,15 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
                   </td>
                   <td>
                     {isHolding ? (
-                      <button onClick={() => handleSell(ticker)} disabled={isLoading}
-                        style={{ padding: "3px 8px", fontSize: 11, borderRadius: 4, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                        {isLoading ? "..." : "전량매도"}
-                      </button>
+                      <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                        <input type="number" placeholder="지정가" value={sellPrices[ticker] || ""}
+                          onChange={(e) => setSellPrices((p) => ({ ...p, [ticker]: e.target.value }))}
+                          style={{ width: 75, padding: "3px 6px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0" }} />
+                        <button onClick={() => handleSell(ticker)} disabled={isLoading}
+                          style={{ padding: "3px 8px", fontSize: 11, borderRadius: 4, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                          {isLoading ? "..." : sellPrices[ticker] ? "지정매도" : "시장매도"}
+                        </button>
+                      </div>
                     ) : (
                       <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
                         <input type="number" placeholder="금액(원)" value={buyAmounts[ticker] || ""}

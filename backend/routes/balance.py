@@ -55,14 +55,19 @@ async def get_balance(user: dict = Depends(get_current_user)):
 
 # === 수동 매수/매도 ===
 
-class ManualOrderRequest(BaseModel):
+class BuyRequest(BaseModel):
     ticker: str
-    amount_krw: float = 0  # 매수 시 사용 (원화)
-    sell_all: bool = False  # 매도 시 전량 매도
+    amount_krw: float
+    limit_price: float | None = None  # None이면 시장가
+
+
+class SellRequest(BaseModel):
+    ticker: str
+    limit_price: float | None = None  # None이면 시장가 전량매도
 
 
 @router.post("/order/buy")
-async def manual_buy(req: ManualOrderRequest, user: dict = Depends(get_current_user)):
+async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
     api = _get_api(user)
 
     if req.amount_krw < 5000:
@@ -72,23 +77,35 @@ async def manual_buy(req: ManualOrderRequest, user: dict = Depends(get_current_u
     if not price:
         raise HTTPException(400, f"{req.ticker} 가격 조회 실패")
 
-    result = await asyncio.to_thread(api.buy_market, req.ticker, req.amount_krw)
+    if req.limit_price:
+        # 지정가 매수
+        volume = req.amount_krw / req.limit_price
+        result = await asyncio.to_thread(api.buy_limit, req.ticker, req.limit_price, volume)
+        order_price = req.limit_price
+        msg = f"{req.ticker} 지정가 매수 주문 ({req.limit_price:,.0f}원 × {volume:.6f})"
+    else:
+        # 시장가 매수
+        result = await asyncio.to_thread(api.buy_market, req.ticker, req.amount_krw)
+        order_price = price
+        msg = f"{req.ticker} {req.amount_krw:,.0f}원 시장가 매수 완료"
+
     if result is None:
         raise HTTPException(500, "매수 주문 실패")
 
-    volume = req.amount_krw / price
+    volume = req.amount_krw / order_price
     await insert_trade(user["id"], {
         "timestamp": datetime.now(KST).isoformat(),
-        "side": "BUY", "ticker": req.ticker, "price": price,
+        "side": "BUY", "ticker": req.ticker, "price": order_price,
         "amount_krw": round(req.amount_krw, 0), "volume": volume,
-        "reason": "MANUAL", "pnl_pct": None, "pnl_krw": None,
+        "reason": "MANUAL_LIMIT" if req.limit_price else "MANUAL",
+        "pnl_pct": None, "pnl_krw": None,
     })
 
-    return {"message": f"{req.ticker} {req.amount_krw:,.0f}원 매수 완료", "price": price}
+    return {"message": msg, "price": order_price}
 
 
 @router.post("/order/sell")
-async def manual_sell(req: ManualOrderRequest, user: dict = Depends(get_current_user)):
+async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
     api = _get_api(user)
 
     balance = await asyncio.to_thread(api.get_balance, req.ticker)
@@ -99,20 +116,32 @@ async def manual_sell(req: ManualOrderRequest, user: dict = Depends(get_current_
     if not price:
         raise HTTPException(400, f"{req.ticker} 가격 조회 실패")
 
-    result = await asyncio.to_thread(api.sell_market, req.ticker, balance)
+    avg_buy = await asyncio.to_thread(api.get_avg_buy_price, req.ticker)
+
+    if req.limit_price:
+        # 지정가 매도
+        result = await asyncio.to_thread(api.sell_limit, req.ticker, req.limit_price, balance)
+        sell_price = req.limit_price
+        msg = f"{req.ticker} 지정가 매도 주문 ({req.limit_price:,.0f}원 × {balance:.6f})"
+    else:
+        # 시장가 전량매도
+        result = await asyncio.to_thread(api.sell_market, req.ticker, balance)
+        sell_price = price
+        msg = f"{req.ticker} 시장가 전량 매도 완료"
+
     if result is None:
         raise HTTPException(500, "매도 주문 실패")
 
-    sell_amount = balance * price
-    avg_buy = await asyncio.to_thread(api.get_avg_buy_price, req.ticker)
-    pnl_pct = ((price - avg_buy) / avg_buy * 100) if avg_buy and avg_buy > 0 else 0
+    sell_amount = balance * sell_price
+    pnl_pct = ((sell_price - avg_buy) / avg_buy * 100) if avg_buy and avg_buy > 0 else 0
     pnl_krw = sell_amount * pnl_pct / 100
 
     await insert_trade(user["id"], {
         "timestamp": datetime.now(KST).isoformat(),
-        "side": "SELL", "ticker": req.ticker, "price": price,
+        "side": "SELL", "ticker": req.ticker, "price": sell_price,
         "amount_krw": round(sell_amount, 0), "volume": balance,
-        "reason": "MANUAL", "pnl_pct": round(pnl_pct, 2), "pnl_krw": round(pnl_krw, 0),
+        "reason": "MANUAL_LIMIT" if req.limit_price else "MANUAL",
+        "pnl_pct": round(pnl_pct, 2), "pnl_krw": round(pnl_krw, 0),
     })
 
-    return {"message": f"{req.ticker} 전량 매도 완료", "price": price, "pnl_pct": round(pnl_pct, 2)}
+    return {"message": msg, "price": sell_price, "pnl_pct": round(pnl_pct, 2)}
