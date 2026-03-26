@@ -13,9 +13,10 @@ import Watchlist from "./components/Watchlist";
 import TopGainers from "./components/TopGainers";
 import Settings from "./components/Settings";
 import Leaderboard from "./components/Leaderboard";
+import LogViewer from "./components/LogViewer";
 import "./App.css";
 
-type Tab = "dashboard" | "market" | "settings" | "leaderboard";
+type Tab = "dashboard" | "market" | "settings" | "leaderboard" | "logs";
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
@@ -76,7 +77,7 @@ function App() {
       </div>
 
       <div className="tabs">
-        {(["dashboard", "market", "settings", "leaderboard"] as Tab[]).map((t) => (
+        {(["dashboard", "market", "settings", "leaderboard", "logs"] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -108,6 +109,7 @@ function App() {
 
       {tab === "settings" && <Settings />}
       {tab === "leaderboard" && <Leaderboard />}
+      {tab === "logs" && <LogViewer />}
     </div>
   );
 }

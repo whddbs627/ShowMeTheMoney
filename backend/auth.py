@@ -1,9 +1,10 @@
 import os
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 
 from backend.database import get_user_by_id
@@ -12,9 +13,6 @@ from backend.database import get_user_by_id
 SECRET_KEY = os.getenv("JWT_SECRET", "showmethemoney-jwt-secret-change-this")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # API key encryption
 ENCRYPT_KEY = os.getenv("ENCRYPT_KEY", "")
@@ -26,11 +24,20 @@ security = HTTPBearer()
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    return salt.hex() + ":" + key.hex()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        salt_hex, key_hex = hashed.split(":")
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(key_hex)
+        actual = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt, 100000)
+        return hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
 
 
 def create_token(user_id: int) -> str:
