@@ -9,14 +9,18 @@ interface Props {
 
 export default function BalanceCard({ balance, pnl }: Props) {
   const [isDemo, setIsDemo] = useState(false);
+  const [hasKeys, setHasKeys] = useState(false);
   const [demoAmount, setDemoAmount] = useState("10000000");
   const [showDemoSetup, setShowDemoSetup] = useState(false);
   const [msg, setMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     getMe().then((data) => {
       setIsDemo(data.is_demo);
+      setHasKeys(data.has_api_keys);
       setDemoAmount(String(data.demo_balance));
+      setLoaded(true);
     });
   }, []);
 
@@ -35,10 +39,9 @@ export default function BalanceCard({ balance, pnl }: Props) {
     }
   };
 
-  if (!balance) return <div className="card">Loading...</div>;
-
-  const holdingCoins = balance.coins.filter((c) => c.value_krw > 0);
   const totalPnl = pnl.length > 0 ? pnl[pnl.length - 1].cumulative_pnl_krw : 0;
+  const noData = !balance || balance.total_krw === null;
+  const needSetup = loaded && !hasKeys && !isDemo;
 
   return (
     <div className="card">
@@ -83,30 +86,45 @@ export default function BalanceCard({ balance, pnl }: Props) {
 
       {msg && <div style={{ color: "#22c55e", fontSize: 11, marginTop: 4 }}>{msg}</div>}
 
-      <div className="info-row" style={{ marginTop: 8 }}>
-        <span>보유 원화</span>
-        <span>{balance.krw_balance != null ? `${balance.krw_balance.toLocaleString()}원` : "-"}</span>
-      </div>
-      {holdingCoins.map((c) => (
-        <div className="info-row" key={c.ticker}>
-          <span>{c.ticker.replace("KRW-", "")}</span>
-          <span>{c.value_krw.toLocaleString()}원</span>
+      {needSetup ? (
+        <div style={{ marginTop: 12, textAlign: "center", padding: "16px 0" }}>
+          <p style={{ color: "#888", fontSize: 13, marginBottom: 8 }}>API 키가 없습니다</p>
+          <p style={{ color: "#666", fontSize: 12, marginBottom: 12 }}>설정에서 API 키를 입력하거나<br/>가상계좌로 체험해보세요</p>
+          <button onClick={() => { setShowDemoSetup(true); }}
+            style={{ padding: "8px 20px", fontSize: 12, borderRadius: 6, border: "none", cursor: "pointer", background: "#eab308", color: "#000", fontWeight: 600 }}>
+            가상계좌 시작하기
+          </button>
         </div>
-      ))}
-      <div className="info-row" style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: 8, marginTop: 4 }}>
-        <span>총 자산</span>
-        <span>{balance.total_krw != null ? `${balance.total_krw.toLocaleString()}원` : "-"}</span>
-      </div>
-      <div className="info-row" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #333" }}>
-        <span>누적 수익</span>
-        <span style={{ color: totalPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
-          {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString()}원
-        </span>
-      </div>
-      <div className="info-row">
-        <span>매도 횟수</span>
-        <span>{pnl.length}회</span>
-      </div>
+      ) : noData ? (
+        <p style={{ color: "#888", fontSize: 13, marginTop: 12 }}>불러오는 중...</p>
+      ) : (
+        <>
+          <div className="info-row" style={{ marginTop: 8 }}>
+            <span>보유 원화</span>
+            <span>{balance.krw_balance != null ? `${balance.krw_balance.toLocaleString()}원` : "-"}</span>
+          </div>
+          {balance.coins.filter((c) => c.value_krw > 0).map((c) => (
+            <div className="info-row" key={c.ticker}>
+              <span>{c.ticker.replace("KRW-", "")}</span>
+              <span>{c.value_krw.toLocaleString()}원</span>
+            </div>
+          ))}
+          <div className="info-row" style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: 8, marginTop: 4 }}>
+            <span>총 자산</span>
+            <span>{balance.total_krw != null ? `${balance.total_krw.toLocaleString()}원` : "-"}</span>
+          </div>
+          <div className="info-row" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #333" }}>
+            <span>누적 수익</span>
+            <span style={{ color: totalPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
+              {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString()}원
+            </span>
+          </div>
+          <div className="info-row">
+            <span>매도 횟수</span>
+            <span>{pnl.length}회</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
