@@ -12,7 +12,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ".,!.git,!node_modules,!venv,!data,!*.pem,!.env"
+          target: /home/ec2-user/app
+          overwrite: true
+
+      - name: Build and restart containers
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -21,19 +31,12 @@ jobs:
           script: |
             cd /home/ec2-user/app
 
-            # Pull latest code
-            if [ -d .git ]; then
-              git pull origin main
-            else
-              cd /home/ec2-user
-              rm -rf app
-              git clone ${{ secrets.REPO_URL }} app
-              cd app
-              # Restore .env from backup
-              cp /home/ec2-user/.env.backup app/.env 2>/dev/null || true
+            # Restore .env if exists in backup
+            if [ ! -f .env ] && [ -f /home/ec2-user/.env.backup ]; then
+              cp /home/ec2-user/.env.backup .env
             fi
 
-            # Rebuild and restart containers
+            # Rebuild and restart
             docker-compose down
             docker-compose up --build -d
             docker-compose ps
@@ -46,4 +49,11 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sleep 5
-            curl -sf http://localhost:3000/api/bot/status > /dev/null && echo "Health check passed" || echo "Health check failed"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/bot/status -u $AUTH_CREDS 2>/dev/null || curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/bot/status 2>/dev/null)
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
+              echo "Deploy successful (HTTP: $STATUS)"
+            else
+              echo "Deploy may have failed (HTTP: $STATUS)"
+              docker-compose -f /home/ec2-user/app/docker-compose.yml logs --tail=20
+              exit 1
+            fi
