@@ -33,6 +33,7 @@ async def init_db():
                 ticker      TEXT NOT NULL,
                 price       REAL NOT NULL,
                 amount_krw  REAL NOT NULL,
+                volume      REAL DEFAULT 0,
                 reason      TEXT,
                 pnl_pct     REAL,
                 pnl_krw     REAL,
@@ -44,6 +45,17 @@ async def init_db():
                 user_id INTEGER NOT NULL,
                 ticker  TEXT NOT NULL,
                 PRIMARY KEY (user_id, ticker),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS balance_snapshots (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                timestamp   TEXT NOT NULL,
+                krw_balance REAL DEFAULT 0,
+                coin_value  REAL DEFAULT 0,
+                total_krw   REAL DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
@@ -113,9 +125,14 @@ async def update_user_strategy(user_id: int, strategy: dict):
 async def insert_trade(user_id: int, trade: dict):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            """INSERT INTO trades (user_id, timestamp, side, ticker, price, amount_krw, reason, pnl_pct, pnl_krw)
-               VALUES (?, :timestamp, :side, :ticker, :price, :amount_krw, :reason, :pnl_pct, :pnl_krw)""",
-            (user_id, *[trade[k] for k in ["timestamp", "side", "ticker", "price", "amount_krw", "reason", "pnl_pct", "pnl_krw"]]),
+            """INSERT INTO trades (user_id, timestamp, side, ticker, price, amount_krw, volume, reason, pnl_pct, pnl_krw)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                trade["timestamp"], trade["side"], trade["ticker"],
+                trade["price"], trade["amount_krw"], trade.get("volume", 0),
+                trade.get("reason"), trade.get("pnl_pct"), trade.get("pnl_krw"),
+            ),
         )
         await db.commit()
 
@@ -139,6 +156,28 @@ async def get_cumulative_pnl(user_id: int) -> list[dict]:
                       SUM(COALESCE(pnl_krw, 0)) OVER (ORDER BY id) as cumulative_pnl_krw
                FROM trades WHERE user_id=? AND side='SELL' ORDER BY id""",
             (user_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+# === Balance Snapshots ===
+async def save_balance_snapshot(user_id: int, krw: float, coin_value: float, total: float):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO balance_snapshots (user_id, timestamp, krw_balance, coin_value, total_krw)
+               VALUES (?, datetime('now'), ?, ?, ?)""",
+            (user_id, krw, coin_value, total),
+        )
+        await db.commit()
+
+
+async def get_balance_history(user_id: int, limit: int = 100) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM balance_snapshots WHERE user_id=? ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]

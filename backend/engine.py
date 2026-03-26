@@ -10,7 +10,7 @@ from upbit_api import UpbitAPI
 from strategy import should_buy, calc_target_price, calc_rsi, check_ma_filter
 from trader import Trader
 from notifier import Notifier
-from backend.database import insert_trade, get_watchlist
+from backend.database import insert_trade, get_watchlist, add_to_watchlist, save_balance_snapshot
 from backend.auth import decrypt_key
 
 logger = logging.getLogger(__name__)
@@ -28,8 +28,6 @@ class CoinState:
 
 
 class UserBot:
-    """Per-user bot instance"""
-
     def __init__(self, user_id: int, user: dict):
         self.user_id = user_id
         self.running = False
@@ -40,8 +38,8 @@ class UserBot:
         self.coin_states: dict[str, CoinState] = {}
         self.started_at: datetime | None = None
         self.tickers: list[str] = []
+        self._loop_count = 0
 
-        # User strategy config
         self.k = user.get("strategy_k", 0.5)
         self.use_ma = bool(user.get("strategy_ma", 1))
         self.use_rsi = bool(user.get("strategy_rsi", 1))
@@ -55,7 +53,6 @@ class UserBot:
         self.notifier = Notifier(discord_url)
         self.traders = {}
         self.coin_states = {}
-
         for ticker in self.tickers:
             self._add_coin(ticker)
 
@@ -63,12 +60,9 @@ class UserBot:
         if ticker in self.traders or not self.api:
             return
         self.traders[ticker] = Trader(
-            api=self.api,
-            notifier=self.notifier,
-            ticker=ticker,
+            api=self.api, notifier=self.notifier, ticker=ticker,
             investment_ratio=self.investment_ratio,
-            max_investment_krw=self.max_investment,
-            max_loss_pct=self.loss_pct,
+            max_investment_krw=self.max_investment, max_loss_pct=self.loss_pct,
         )
         self.coin_states[ticker] = CoinState(ticker)
 
@@ -78,6 +72,30 @@ class UserBot:
             return
         self.traders.pop(ticker, None)
         self.coin_states.pop(ticker, None)
+
+    async def _sync_holdings_to_watchlist(self):
+        """보유 중인 코인을 watchlist에 자동 추가"""
+        if not self.api:
+            return
+        try:
+            balances = await asyncio.to_thread(self.api.upbit.get_balances)
+            if not balances:
+                return
+            for b in balances:
+                currency = b.get("currency", "")
+                if currency == "KRW":
+                    continue
+                balance = float(b.get("balance", 0))
+                avg_price = float(b.get("avg_buy_price", 0))
+                if balance > 0 and avg_price > 0:
+                    ticker = f"KRW-{currency}"
+                    if ticker not in self.tickers:
+                        self.tickers.append(ticker)
+                        await add_to_watchlist(self.user_id, ticker)
+                        self._add_coin(ticker)
+                        self._log(f"[AUTO] Added holding {ticker} to watchlist")
+        except Exception as e:
+            logger.error(f"[User {self.user_id}] Sync holdings error: {e}")
 
     async def start(self, user: dict):
         if self.running:
@@ -93,20 +111,25 @@ class UserBot:
         discord_url = user.get("discord_webhook_url", "")
 
         self.tickers = await get_watchlist(self.user_id)
-        if not self.tickers:
-            raise ValueError("Add coins to your watchlist first")
 
         self._init_components(access_key, secret_key, discord_url)
+
+        # 보유 코인을 watchlist에 자동 추가
+        await self._sync_holdings_to_watchlist()
+
+        if not self.tickers:
+            raise ValueError("Add coins to your watchlist first")
 
         for trader in self.traders.values():
             await asyncio.to_thread(trader.sync_position)
 
         self.running = True
         self.started_at = datetime.now(KST)
+        self._loop_count = 0
         self.task = asyncio.create_task(self._loop())
 
         coins = ", ".join(self.tickers)
-        self.notifier.send(f"[START] Bot started\nCoins: {coins}")
+        self._log(f"[START] Bot started\nCoins: {coins}")
 
     async def stop(self):
         if not self.running:
@@ -121,10 +144,9 @@ class UserBot:
         self.task = None
         self.started_at = None
         if self.notifier:
-            self.notifier.send("[STOP] Bot stopped")
+            self._log("[STOP] Bot stopped")
 
     def _log(self, msg: str):
-        """Log to console + Discord webhook"""
         logger.info(f"[User {self.user_id}] {msg}")
         if self.notifier:
             self.notifier.send(msg)
@@ -137,12 +159,31 @@ class UserBot:
                         break
                     await self._tick(ticker)
                     await asyncio.sleep(0.5)
+
+                self._loop_count += 1
+                # 매 30회(~5분)마다 balance 스냅샷 저장
+                if self._loop_count % 30 == 0:
+                    await self._save_balance()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._log(f"[ERROR] Bot loop: {e}")
                 await asyncio.sleep(60)
             await asyncio.sleep(10)
+
+    async def _save_balance(self):
+        try:
+            krw = await asyncio.to_thread(self.api.get_krw_balance) or 0
+            coin_value = 0
+            for ticker in self.tickers:
+                bal = await asyncio.to_thread(self.api.get_balance, ticker)
+                price = await asyncio.to_thread(self.api.get_current_price, ticker)
+                coin_value += (bal or 0) * (price or 0)
+            total = krw + coin_value
+            await save_balance_snapshot(self.user_id, krw, coin_value, total)
+        except Exception as e:
+            logger.error(f"[User {self.user_id}] Balance snapshot error: {e}")
 
     async def _tick(self, ticker: str):
         trader = self.traders.get(ticker)
@@ -171,11 +212,18 @@ class UserBot:
                     pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100
                     now_date = datetime.now(KST).date()
                     reason = "NEXT_DAY" if buy_date_snapshot and now_date > buy_date_snapshot else "STOP_LOSS"
+                    # 매도 금액 계산
+                    coin_bal = await asyncio.to_thread(self.api.get_balance, ticker)
+                    sell_amount = (coin_bal or 0) * price
+                    pnl_krw = sell_amount * pnl_pct / 100
                     await insert_trade(self.user_id, {
                         "timestamp": datetime.now(KST).isoformat(),
                         "side": "SELL", "ticker": ticker, "price": price,
-                        "amount_krw": 0, "reason": reason,
-                        "pnl_pct": round(pnl_pct, 2), "pnl_krw": 0,
+                        "amount_krw": round(sell_amount, 0),
+                        "volume": coin_bal or 0,
+                        "reason": reason,
+                        "pnl_pct": round(pnl_pct, 2),
+                        "pnl_krw": round(pnl_krw, 0),
                     })
             else:
                 signal = should_buy(
@@ -187,11 +235,13 @@ class UserBot:
                     amount = min((krw or 0) * self.investment_ratio, self.max_investment)
                     bought = await asyncio.to_thread(trader.check_and_buy, price, signal)
                     if bought:
+                        volume = amount / price if price > 0 else 0
                         await insert_trade(self.user_id, {
                             "timestamp": datetime.now(KST).isoformat(),
                             "side": "BUY", "ticker": ticker, "price": price,
-                            "amount_krw": round(amount, 0), "reason": None,
-                            "pnl_pct": None, "pnl_krw": None,
+                            "amount_krw": round(amount, 0),
+                            "volume": volume,
+                            "reason": None, "pnl_pct": None, "pnl_krw": None,
                         })
         except Exception as e:
             self._log(f"[ERROR] [{ticker}] {e}")
@@ -215,8 +265,6 @@ class UserBot:
 
 
 class BotManager:
-    """Manages all user bots"""
-
     def __init__(self):
         self.bots: dict[int, UserBot] = {}
 
