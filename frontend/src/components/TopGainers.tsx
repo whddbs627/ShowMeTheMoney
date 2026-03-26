@@ -2,10 +2,7 @@ import { useState, useEffect } from "react";
 import { getTopGainers, addToWatchlist } from "../api";
 
 interface Gainer {
-  ticker: string;
-  name: string;
-  current_price: number;
-  change_pct: number;
+  ticker: string; name: string; current_price: number; change_pct: number;
 }
 
 interface Props {
@@ -19,11 +16,7 @@ export default function TopGainers({ watchlist, onAdd }: Props) {
 
   const fetchGainers = async () => {
     setLoading(true);
-    try {
-      setGainers(await getTopGainers(20) as Gainer[]);
-    } catch {
-      setGainers([]);
-    }
+    try { setGainers(await getTopGainers(20) as Gainer[]); } catch { setGainers([]); }
     setLoading(false);
   };
 
@@ -33,45 +26,22 @@ export default function TopGainers({ watchlist, onAdd }: Props) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleAdd = async (ticker: string) => {
-    await addToWatchlist(ticker);
-    onAdd();
-  };
+  const handleAdd = async (ticker: string) => { await addToWatchlist(ticker); onAdd(); };
 
   return (
     <div className="card">
       <h3>
-        Top Gainers (24h)
-        <button
-          onClick={fetchGainers}
-          style={{
-            marginLeft: 12,
-            padding: "2px 10px",
-            fontSize: 11,
-            borderRadius: 4,
-            border: "1px solid #333",
-            background: "transparent",
-            color: "#888",
-            cursor: "pointer",
-          }}
-        >
-          Refresh
+        급등 코인 (24시간)
+        <button onClick={fetchGainers} style={{ marginLeft: 12, padding: "2px 10px", fontSize: 11, borderRadius: 4, border: "1px solid #333", background: "transparent", color: "#888", cursor: "pointer" }}>
+          새로고침
         </button>
       </h3>
       {loading && gainers.length === 0 ? (
-        <p style={{ color: "#888", fontSize: 13 }}>Loading market data...</p>
+        <p style={{ color: "#888", fontSize: 13 }}>시세 불러오는 중...</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Coin</th>
-                <th>Price</th>
-                <th>Change</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr><th>#</th><th>코인</th><th>현재가</th><th>등락률</th><th></th></tr></thead>
             <tbody>
               {gainers.map((g, i) => {
                 const inWatchlist = watchlist.includes(g.ticker);
@@ -80,31 +50,13 @@ export default function TopGainers({ watchlist, onAdd }: Props) {
                     <td style={{ color: "#888" }}>{i + 1}</td>
                     <td style={{ fontWeight: 600 }}>{g.name}</td>
                     <td>{g.current_price.toLocaleString()}</td>
-                    <td
-                      style={{
-                        color: g.change_pct >= 0 ? "#22c55e" : "#ef4444",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {g.change_pct >= 0 ? "+" : ""}
-                      {g.change_pct.toFixed(2)}%
+                    <td style={{ color: g.change_pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+                      {g.change_pct >= 0 ? "+" : ""}{g.change_pct.toFixed(2)}%
                     </td>
                     <td>
-                      <button
-                        onClick={() => handleAdd(g.ticker)}
-                        disabled={inWatchlist}
-                        style={{
-                          padding: "3px 10px",
-                          fontSize: 11,
-                          borderRadius: 4,
-                          border: "none",
-                          cursor: inWatchlist ? "default" : "pointer",
-                          background: inWatchlist ? "#333" : "#3b82f6",
-                          color: "#fff",
-                          opacity: inWatchlist ? 0.5 : 1,
-                        }}
-                      >
-                        {inWatchlist ? "Added" : "+ Add"}
+                      <button onClick={() => handleAdd(g.ticker)} disabled={inWatchlist}
+                        style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, border: "none", cursor: inWatchlist ? "default" : "pointer", background: inWatchlist ? "#333" : "#3b82f6", color: "#fff", opacity: inWatchlist ? 0.5 : 1 }}>
+                        {inWatchlist ? "추가됨" : "+ 추가"}
                       </button>
                     </td>
                   </tr>

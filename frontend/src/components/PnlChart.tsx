@@ -5,8 +5,8 @@ export default function PnlChart({ data }: { data: PnlPoint[] }) {
   if (data.length === 0) {
     return (
       <div className="card">
-        <h3>Cumulative P&L</h3>
-        <p style={{ color: "#888" }}>No data yet.</p>
+        <h3>누적 수익 차트</h3>
+        <p style={{ color: "#888" }}>아직 매도 내역이 없습니다.</p>
       </div>
     );
   }
@@ -21,10 +21,9 @@ export default function PnlChart({ data }: { data: PnlPoint[] }) {
   return (
     <div className="card">
       <h3>
-        Cumulative P&L{" "}
+        누적 수익{" "}
         <span style={{ color: lastPnl >= 0 ? "#22c55e" : "#ef4444", fontSize: 18 }}>
-          {lastPnl >= 0 ? "+" : ""}
-          {lastPnl.toLocaleString()} KRW
+          {lastPnl >= 0 ? "+" : ""}{lastPnl.toLocaleString()}원
         </span>
       </h3>
       <ResponsiveContainer width="100%" height={250}>
@@ -34,14 +33,11 @@ export default function PnlChart({ data }: { data: PnlPoint[] }) {
           <YAxis stroke="#888" fontSize={12} tickFormatter={(v) => `${v.toLocaleString()}`} />
           <Tooltip
             contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #333" }}
-            formatter={(value) => [`${Number(value).toLocaleString()} KRW`, "P&L"]}
+            formatter={(value) => [`${Number(value).toLocaleString()}원`, "수익"]}
           />
-          <Area
-            type="monotone"
-            dataKey="cumulative_pnl_krw"
+          <Area type="monotone" dataKey="cumulative_pnl_krw"
             stroke={lastPnl >= 0 ? "#22c55e" : "#ef4444"}
-            fill={lastPnl >= 0 ? "#22c55e22" : "#ef444422"}
-          />
+            fill={lastPnl >= 0 ? "#22c55e22" : "#ef444422"} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

@@ -13,7 +13,14 @@ import Settings from "./components/Settings";
 import Leaderboard from "./components/Leaderboard";
 import "./App.css";
 
-type Tab = "dashboard" | "settings" | "leaderboard";
+type Tab = "dashboard" | "trades" | "settings" | "leaderboard";
+
+const TAB_LABELS: Record<Tab, string> = {
+  dashboard: "대시보드",
+  trades: "매매 내역",
+  settings: "설정",
+  leaderboard: "순위",
+};
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
@@ -44,10 +51,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
     fetchFast(); fetchSlow(); fetchWatchlist();
-    getMe().then((data) => {
-      setUsername(data.username);
-      setLossPct(data.strategy.loss_pct);
-    }).catch(() => {});
+    getMe().then((data) => { setUsername(data.username); setLossPct(data.strategy.loss_pct); }).catch(() => {});
     const fast = setInterval(fetchFast, 5000);
     const slow = setInterval(fetchSlow, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
@@ -65,14 +69,14 @@ function App() {
         <h1 className="title">ShowMeTheMoney</h1>
         <div className="header-right">
           <span style={{ color: "#888", fontSize: 13 }}>{username}</span>
-          <button className="btn-logout" onClick={handleLogout}>Logout</button>
+          <button className="btn-logout" onClick={handleLogout}>로그아웃</button>
         </div>
       </div>
 
       <div className="tabs">
-        {(["dashboard", "settings", "leaderboard"] as Tab[]).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? "tab-active" : ""}`} onClick={() => setTab(t)}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
@@ -81,21 +85,18 @@ function App() {
         <>
           <div className="grid-two">
             <StatusCard status={status} onAction={handleAction} />
-            <BalanceCard balance={balance} />
+            <BalanceCard balance={balance} pnl={pnl} />
           </div>
-
           <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
+          <PriceDisplay coins={status?.coins ?? []} watchlist={watchlistTickers} onRemove={fetchWatchlist} lossPct={lossPct} />
+          <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
+        </>
+      )}
 
-          <PriceDisplay
-            coins={status?.coins ?? []}
-            watchlist={watchlistTickers}
-            onRemove={fetchWatchlist}
-            lossPct={lossPct}
-          />
-
+      {tab === "trades" && (
+        <>
           <PnlChart data={pnl} />
           <TradeTable trades={trades} />
-          <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>
       )}
 
