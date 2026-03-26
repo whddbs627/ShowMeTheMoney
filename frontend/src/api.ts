@@ -79,6 +79,19 @@ export const manualSell = (ticker: string, limit_price?: number) =>
     method: "POST", body: JSON.stringify({ ticker, limit_price: limit_price || null }),
   });
 
+// Orders
+export const getOpenOrders = () => fetchJSON<{
+  uuid: string; side: string; ticker: string; price: number;
+  volume: number; remaining: number; amount_krw: number; created_at: string;
+}[]>("/orders");
+export const cancelOrder = (uuid: string) =>
+  fetchJSON<{ message: string }>("/orders/cancel", {
+    method: "POST", body: JSON.stringify({ uuid }),
+  });
+
+// Version (for auto-refresh)
+export const getVersion = () => fetchJSON<{ version: string }>("/version");
+
 // Market (no auth needed for search/gainers)
 export const searchCoins = (q = "") => fetchJSON<{ ticker: string; name: string }[]>(`/market/coins?q=${q}`);
 export const getTopGainers = (limit = 20) => fetchJSON<unknown[]>(`/market/top-gainers?limit=${limit}`);

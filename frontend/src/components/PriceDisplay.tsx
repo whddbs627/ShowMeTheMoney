@@ -126,6 +126,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
               <th>손절가</th>
               <th>RSI</th>
               <th>추세</th>
+              <th>매수가</th>
               <th>수익률</th>
               <th>매매</th>
               <th></th>
@@ -149,6 +150,7 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
                   <td style={{ color: c?.ma_bullish ? "#22c55e" : c?.ma_bullish === false ? "#ef4444" : undefined }}>
                     {c?.ma_bullish == null ? "-" : c.ma_bullish ? "상승" : "하락"}
                   </td>
+                  <td>{c?.buy_price ? c.buy_price.toLocaleString() : "-"}</td>
                   <td style={{ color: pnl !== null ? (pnl >= 0 ? "#22c55e" : "#ef4444") : undefined, fontWeight: pnl !== null ? 600 : 400 }}>
                     {pnl !== null ? `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%` : "-"}
                   </td>

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist, getMe, getPrice } from "./api";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist, getMe, getPrice, getVersion } from "./api";
 import type { BotStatus, BalanceInfo, TradeRecord, PnlPoint, CoinStatus } from "./types";
 import AuthPage from "./components/AuthPage";
 import StatusCard from "./components/StatusCard";
@@ -11,6 +11,7 @@ import CoinSearch from "./components/CoinSearch";
 import TopGainers from "./components/TopGainers";
 import Settings from "./components/Settings";
 import Leaderboard from "./components/Leaderboard";
+import OpenOrders from "./components/OpenOrders";
 import "./App.css";
 
 type Tab = "dashboard" | "trades" | "leaderboard";
@@ -34,12 +35,18 @@ function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [showSettings, setShowSettings] = useState(false);
   const closeSettings = () => setShowSettings(false);
+  const serverVersion = useRef<string | null>(null);
 
   const fetchFast = useCallback(async () => {
     try {
-      const [s, p] = await Promise.all([getBotStatus(), getPrice()]);
+      const [s, p, v] = await Promise.all([getBotStatus(), getPrice(), getVersion()]);
       setStatus(s as BotStatus);
       setCoins((p as { coins: CoinStatus[] }).coins || []);
+      // 서버 재시작 감지 → 자동 새로고침
+      if (serverVersion.current && serverVersion.current !== v.version) {
+        window.location.reload();
+      }
+      serverVersion.current = v.version;
     } catch { /* */ }
   }, []);
 
@@ -102,6 +109,7 @@ function App() {
             <BalanceCard balance={balance} pnl={pnl} />
           </div>
           <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} onTrade={handleTrade} lossPct={lossPct} />
+          <OpenOrders onCancel={handleTrade} />
           <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>

@@ -145,3 +145,37 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
     })
 
     return {"message": msg, "price": sell_price, "pnl_pct": round(pnl_pct, 2)}
+
+
+# === 미체결 주문 ===
+
+@router.get("/orders")
+async def get_open_orders(user: dict = Depends(get_current_user)):
+    api = _get_api(user)
+    orders = await asyncio.to_thread(api.get_open_orders)
+    result = []
+    for o in orders:
+        result.append({
+            "uuid": o.get("uuid"),
+            "side": "매수" if o.get("side") == "bid" else "매도",
+            "ticker": o.get("market", ""),
+            "price": float(o.get("price", 0)),
+            "volume": float(o.get("volume", 0)),
+            "remaining": float(o.get("remaining_volume", 0)),
+            "amount_krw": round(float(o.get("price", 0)) * float(o.get("volume", 0)), 0),
+            "created_at": o.get("created_at", ""),
+        })
+    return result
+
+
+class CancelRequest(BaseModel):
+    uuid: str
+
+
+@router.post("/orders/cancel")
+async def cancel_order(req: CancelRequest, user: dict = Depends(get_current_user)):
+    api = _get_api(user)
+    result = await asyncio.to_thread(api.cancel_order, req.uuid)
+    if result is None:
+        raise HTTPException(500, "주문 취소 실패")
+    return {"message": "주문이 취소되었습니다"}

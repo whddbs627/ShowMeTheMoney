@@ -107,6 +107,20 @@ class UpbitAPI:
             logger.error(f"Failed to cancel order: {e}")
             return None
 
+    def get_open_orders(self, ticker: str = None) -> list:
+        """미체결 주문 조회"""
+        try:
+            if ticker:
+                orders = self.upbit.get_order(ticker, state="wait")
+            else:
+                orders = self.upbit.get_order("", state="wait")
+            if isinstance(orders, list):
+                return orders
+            return []
+        except Exception as e:
+            logger.error(f"Failed to get open orders: {e}")
+            return []
+
     def get_avg_buy_price(self, ticker: str) -> float | None:
         try:
             balances = self.upbit.get_balances()
