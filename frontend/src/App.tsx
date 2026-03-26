@@ -10,16 +10,14 @@ import PnlChart from "./components/PnlChart";
 import CoinSearch from "./components/CoinSearch";
 import TopGainers from "./components/TopGainers";
 import Settings from "./components/Settings";
-import Strategy from "./components/Strategy";
 import Leaderboard from "./components/Leaderboard";
 import "./App.css";
 
-type Tab = "dashboard" | "trades" | "strategy" | "leaderboard";
+type Tab = "dashboard" | "trades" | "leaderboard";
 
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "대시보드",
   trades: "매매 내역",
-  strategy: "매매 전략",
   leaderboard: "순위",
 };
 
@@ -67,6 +65,7 @@ function App() {
   const handleLogin = (t: string, u: string) => { setToken(t); setUsername(u); };
   const handleLogout = () => { localStorage.removeItem("token"); setToken(null); setUsername(""); };
   const handleAction = () => { setTimeout(() => { fetchFast(); fetchSlow(); }, 500); };
+  const handleTrade = () => { fetchFast(); fetchSlow(); };
 
   if (!token) return <AuthPage onLogin={handleLogin} />;
 
@@ -101,7 +100,7 @@ function App() {
             <StatusCard status={status} onAction={handleAction} />
             <BalanceCard balance={balance} pnl={pnl} />
           </div>
-          <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} lossPct={lossPct} />
+          <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} onTrade={handleTrade} lossPct={lossPct} />
           <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>
@@ -114,7 +113,6 @@ function App() {
         </>
       )}
 
-      {tab === "strategy" && <Strategy />}
       {tab === "leaderboard" && <Leaderboard />}
     </div>
   );

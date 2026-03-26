@@ -68,6 +68,16 @@ export const getBalance = () => fetchJSON<{ krw_balance: number | null; coins: u
 export const getTrades = (limit = 50) => fetchJSON<unknown[]>(`/trades?limit=${limit}`);
 export const getPnl = () => fetchJSON<unknown[]>("/trades/pnl");
 
+// Manual orders
+export const manualBuy = (ticker: string, amount_krw: number) =>
+  fetchJSON<{ message: string; price: number }>("/order/buy", {
+    method: "POST", body: JSON.stringify({ ticker, amount_krw }),
+  });
+export const manualSell = (ticker: string) =>
+  fetchJSON<{ message: string; price: number; pnl_pct: number }>("/order/sell", {
+    method: "POST", body: JSON.stringify({ ticker, sell_all: true }),
+  });
+
 // Market (no auth needed for search/gainers)
 export const searchCoins = (q = "") => fetchJSON<{ ticker: string; name: string }[]>(`/market/coins?q=${q}`);
 export const getTopGainers = (limit = 20) => fetchJSON<unknown[]>(`/market/top-gainers?limit=${limit}`);
