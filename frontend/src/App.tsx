@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist } from "./api";
+import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist, getMe } from "./api";
 import type { BotStatus, BalanceInfo, TradeRecord, PnlPoint } from "./types";
 import AuthPage from "./components/AuthPage";
 import StatusCard from "./components/StatusCard";
@@ -8,7 +8,6 @@ import BalanceCard from "./components/BalanceCard";
 import TradeTable from "./components/TradeTable";
 import PnlChart from "./components/PnlChart";
 import CoinSearch from "./components/CoinSearch";
-import Watchlist from "./components/Watchlist";
 import TopGainers from "./components/TopGainers";
 import Settings from "./components/Settings";
 import Leaderboard from "./components/Leaderboard";
@@ -24,6 +23,7 @@ function App() {
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [pnl, setPnl] = useState<PnlPoint[]>([]);
   const [watchlistTickers, setWatchlistTickers] = useState<string[]>([]);
+  const [lossPct, setLossPct] = useState(0.03);
   const [tab, setTab] = useState<Tab>("dashboard");
 
   const fetchFast = useCallback(async () => {
@@ -44,6 +44,10 @@ function App() {
   useEffect(() => {
     if (!token) return;
     fetchFast(); fetchSlow(); fetchWatchlist();
+    getMe().then((data) => {
+      setUsername(data.username);
+      setLossPct(data.strategy.loss_pct);
+    }).catch(() => {});
     const fast = setInterval(fetchFast, 5000);
     const slow = setInterval(fetchSlow, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
@@ -80,12 +84,15 @@ function App() {
             <BalanceCard balance={balance} />
           </div>
 
-          <div className="grid-two">
-            <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
-            <Watchlist tickers={watchlistTickers} onRemove={fetchWatchlist} />
-          </div>
+          <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
 
-          <PriceDisplay coins={status?.coins ?? []} />
+          <PriceDisplay
+            coins={status?.coins ?? []}
+            watchlist={watchlistTickers}
+            onRemove={fetchWatchlist}
+            lossPct={lossPct}
+          />
+
           <PnlChart data={pnl} />
           <TradeTable trades={trades} />
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
