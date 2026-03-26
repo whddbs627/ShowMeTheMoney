@@ -144,8 +144,9 @@ export default function PriceDisplay({ coins, watchlist, onRemove, onTrade, loss
               const isLoading = loading[ticker];
               return (
                 <tr key={ticker} style={{ background: isHolding ? "#22c55e08" : undefined }}>
-                  <td style={{ fontWeight: 600, cursor: "pointer", color: "#3b82f6" }} onClick={() => setChartTicker(ticker)} title="차트 보기">
-                    {ticker.replace("KRW-", "")}
+                  <td style={{ cursor: "pointer" }} onClick={() => setChartTicker(ticker)} title="차트 보기">
+                    <span style={{ fontWeight: 600, color: "#3b82f6" }}>{ticker.replace("KRW-", "")}</span>
+                    {c?.kr_name && <span style={{ color: "#666", fontSize: 10, marginLeft: 4 }}>{c.kr_name}</span>}
                   </td>
                   <td>
                     <span style={{ color: isHolding ? "#22c55e" : "#555", fontWeight: 600, fontSize: 12 }}>

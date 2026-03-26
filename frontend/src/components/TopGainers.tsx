@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { getTopGainers, getTopVolume, getTopPrice, addToWatchlist } from "../api";
 
 interface CoinData {
-  ticker: string; name: string; current_price: number; change_pct: number; volume_krw: number;
+  ticker: string; name: string; kr_name?: string; current_price: number; change_pct: number; volume_krw: number;
 }
 
 type SortMode = "gainers" | "volume" | "price";
@@ -89,7 +89,10 @@ export default function MarketRanking({ watchlist, onAdd }: Props) {
                 return (
                   <tr key={g.ticker}>
                     <td style={{ color: "#888" }}>{i + 1}</td>
-                    <td style={{ fontWeight: 600 }}>{g.name}</td>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{g.name}</span>
+                      {g.kr_name && <span style={{ color: "#666", fontSize: 10, marginLeft: 4 }}>{g.kr_name}</span>}
+                    </td>
                     <td>{g.current_price.toLocaleString()}</td>
                     <td style={{ color: g.change_pct >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
                       {g.change_pct >= 0 ? "+" : ""}{g.change_pct.toFixed(2)}%

@@ -13,18 +13,36 @@ _cache_ts: float = 0
 
 @router.get("/market/coins")
 async def search_coins(q: str = Query("", description="Search keyword")):
+    from backend.coin_names import get_coin_name, get_all_names
     tickers = await asyncio.to_thread(pyupbit.get_tickers, fiat="KRW")
     if not tickers:
         return []
 
     if q:
         q_upper = q.upper()
-        tickers = [t for t in tickers if q_upper in t.upper()]
+        q_lower = q.lower()
+        all_names = get_all_names()
+        tickers = [
+            t for t in tickers
+            if q_upper in t.upper()
+            or q_lower in all_names.get(t, {}).get("kr", "").lower()
+            or q_lower in all_names.get(t, {}).get("en", "").lower()
+        ]
 
-    return [{"ticker": t, "name": t.replace("KRW-", "")} for t in sorted(tickers)]
+    result = []
+    for t in sorted(tickers):
+        cn = get_coin_name(t)
+        result.append({
+            "ticker": t,
+            "name": t.replace("KRW-", ""),
+            "kr_name": cn["kr"],
+            "en_name": cn["en"],
+        })
+    return result
 
 
 def _fetch_all_tickers() -> list[dict]:
+    from backend.coin_names import get_coin_name
     try:
         tickers = pyupbit.get_tickers(fiat="KRW")
         if not tickers:
@@ -37,9 +55,12 @@ def _fetch_all_tickers() -> list[dict]:
 
         results = []
         for item in data:
+            ticker = item["market"]
+            cn = get_coin_name(ticker)
             results.append({
-                "ticker": item["market"],
-                "name": item["market"].replace("KRW-", ""),
+                "ticker": ticker,
+                "name": ticker.replace("KRW-", ""),
+                "kr_name": cn["kr"],
                 "current_price": item.get("trade_price", 0),
                 "change_pct": round((item.get("signed_change_rate", 0)) * 100, 2),
                 "volume_krw": round(item.get("acc_trade_price_24h", 0), 0),

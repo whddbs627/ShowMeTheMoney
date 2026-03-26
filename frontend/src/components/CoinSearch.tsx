@@ -8,7 +8,7 @@ interface Props {
 
 export default function CoinSearch({ watchlist, onAdd }: Props) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<{ ticker: string; name: string }[]>([]);
+  const [results, setResults] = useState<{ ticker: string; name: string; kr_name?: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -38,7 +38,10 @@ export default function CoinSearch({ watchlist, onAdd }: Props) {
             const inWatchlist = watchlist.includes(coin.ticker);
             return (
               <div key={coin.ticker} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1a1a3e" }}>
-                <span style={{ fontSize: 13 }}><strong>{coin.name}</strong> <span style={{ color: "#888" }}>{coin.ticker}</span></span>
+                <span style={{ fontSize: 13 }}>
+                  <strong>{coin.name}</strong>
+                  {coin.kr_name && <span style={{ color: "#888", marginLeft: 4 }}>{coin.kr_name}</span>}
+                </span>
                 <button onClick={() => handleAdd(coin.ticker)} disabled={inWatchlist}
                   style={{ padding: "4px 12px", fontSize: 12, borderRadius: 6, border: "none", cursor: inWatchlist ? "default" : "pointer", background: inWatchlist ? "#333" : "#3b82f6", color: "#fff", opacity: inWatchlist ? 0.5 : 1 }}>
                   {inWatchlist ? "추가됨" : "+ 추가"}

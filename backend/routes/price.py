@@ -8,6 +8,7 @@ from backend.database import get_watchlist, get_demo_holdings
 from backend.upbit_cache import price_cache, balance_cache, ohlcv_cache
 from strategy import calc_target_price, calc_rsi, check_ma_filter
 from upbit_api import UpbitAPI
+from backend.coin_names import get_coin_name
 
 router = APIRouter(tags=["price"])
 
@@ -56,8 +57,10 @@ async def _build_coin_data(ticker: str, api: UpbitAPI | None, user_k: float, use
             state = "holding"
             buy_price = await _cached_avg_price(api, ticker, user_id)
 
+    cn = get_coin_name(ticker)
     return {
         "ticker": ticker, "state": state,
+        "kr_name": cn["kr"],
         "current_price": float(price) if price else None,
         "target_price": target, "buy_price": buy_price,
         "rsi": rsi, "ma_bullish": ma_bullish,

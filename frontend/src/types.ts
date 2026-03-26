@@ -1,6 +1,7 @@
 export interface CoinStatus {
   ticker: string;
   state: "holding" | "waiting";
+  kr_name?: string;
   current_price: number | null;
   target_price: number | null;
   buy_price: number | null;
