@@ -21,9 +21,15 @@ async def init_db():
                 strategy_rsi_lower REAL DEFAULT 30.0,
                 strategy_loss_pct  REAL DEFAULT 0.03,
                 max_investment_krw REAL DEFAULT 100000,
+                min_investment_krw REAL DEFAULT 5000,
                 created_at      TEXT DEFAULT (datetime('now'))
             )
         """)
+        # Migration: add min_investment_krw if missing
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN min_investment_krw REAL DEFAULT 5000")
+        except Exception:
+            pass  # column already exists
         await db.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,10 +117,12 @@ async def update_user_strategy(user_id: int, strategy: dict):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """UPDATE users SET strategy_k=?, strategy_ma=?, strategy_rsi=?,
-               strategy_rsi_lower=?, strategy_loss_pct=?, max_investment_krw=? WHERE id=?""",
+               strategy_rsi_lower=?, strategy_loss_pct=?, max_investment_krw=?, min_investment_krw=? WHERE id=?""",
             (
                 strategy["k"], strategy["use_ma"], strategy["use_rsi"],
-                strategy["rsi_lower"], strategy["loss_pct"], strategy["max_investment_krw"],
+                strategy["rsi_lower"], strategy["loss_pct"],
+                strategy.get("max_investment_krw", 100000),
+                strategy.get("min_investment_krw", 5000),
                 user_id,
             ),
         )

@@ -6,9 +6,9 @@ import requests
 
 router = APIRouter(tags=["market"])
 
-# Cache for top gainers (refresh every 60s)
-_gainers_cache: list = []
-_gainers_ts: float = 0
+# Cache (refresh every 60s)
+_all_cache: list = []
+_cache_ts: float = 0
 
 
 @router.get("/market/coins")
@@ -25,17 +25,13 @@ async def search_coins(q: str = Query("", description="Search keyword")):
 
 
 def _fetch_all_tickers() -> list[dict]:
-    """Upbit API로 전체 코인 정보를 한 번에 가져옴 (빠름)"""
     try:
         tickers = pyupbit.get_tickers(fiat="KRW")
         if not tickers:
             return []
 
         markets = ",".join(tickers)
-        resp = requests.get(
-            f"https://api.upbit.com/v1/ticker?markets={markets}",
-            timeout=10,
-        )
+        resp = requests.get(f"https://api.upbit.com/v1/ticker?markets={markets}", timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
@@ -53,16 +49,34 @@ def _fetch_all_tickers() -> list[dict]:
         return []
 
 
+async def _get_cached():
+    global _all_cache, _cache_ts
+    now = time.time()
+    if now - _cache_ts < 60 and _all_cache:
+        return _all_cache
+    _all_cache = await asyncio.to_thread(_fetch_all_tickers)
+    _cache_ts = now
+    return _all_cache
+
+
 @router.get("/market/top-gainers")
 async def get_top_gainers(limit: int = Query(20, ge=1, le=50)):
-    global _gainers_cache, _gainers_ts
-
-    now = time.time()
-    if now - _gainers_ts < 60 and _gainers_cache:
-        return _gainers_cache[:limit]
-
-    results = await asyncio.to_thread(_fetch_all_tickers)
+    results = list(await _get_cached())
     results.sort(key=lambda x: x["change_pct"], reverse=True)
-    _gainers_cache = results
-    _gainers_ts = now
+    return results[:limit]
+
+
+@router.get("/market/top-volume")
+async def get_top_volume(limit: int = Query(20, ge=1, le=50)):
+    """거래대금 상위"""
+    results = list(await _get_cached())
+    results.sort(key=lambda x: x["volume_krw"], reverse=True)
+    return results[:limit]
+
+
+@router.get("/market/top-price")
+async def get_top_price(limit: int = Query(20, ge=1, le=50)):
+    """고가 코인"""
+    results = list(await _get_cached())
+    results.sort(key=lambda x: x["current_price"], reverse=True)
     return results[:limit]

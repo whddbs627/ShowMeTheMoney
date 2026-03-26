@@ -39,7 +39,7 @@ export const login = (username: string, password: string) =>
 export const getMe = () => fetchJSON<{
   user_id: number; username: string; has_api_keys: boolean;
   discord_webhook_url: string;
-  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; max_investment_krw: number };
+  strategy: { k: number; use_ma: boolean; use_rsi: boolean; rsi_lower: number; loss_pct: number; max_investment_krw: number; min_investment_krw: number };
 }>("/auth/me");
 
 export const saveApiKeys = (access_key: string, secret_key: string) =>
@@ -81,6 +81,8 @@ export const manualSell = (ticker: string) =>
 // Market (no auth needed for search/gainers)
 export const searchCoins = (q = "") => fetchJSON<{ ticker: string; name: string }[]>(`/market/coins?q=${q}`);
 export const getTopGainers = (limit = 20) => fetchJSON<unknown[]>(`/market/top-gainers?limit=${limit}`);
+export const getTopVolume = (limit = 20) => fetchJSON<unknown[]>(`/market/top-volume?limit=${limit}`);
+export const getTopPrice = (limit = 20) => fetchJSON<unknown[]>(`/market/top-price?limit=${limit}`);
 
 // Watchlist
 export const getWatchlist = () => fetchJSON<{ tickers: string[] }>("/watchlist");

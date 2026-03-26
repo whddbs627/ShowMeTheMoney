@@ -80,6 +80,7 @@ async def get_me(user: dict = Depends(get_current_user)):
             "rsi_lower": user["strategy_rsi_lower"],
             "loss_pct": user["strategy_loss_pct"],
             "max_investment_krw": user["max_investment_krw"],
+            "min_investment_krw": user.get("min_investment_krw", 5000),
         },
     }
 
