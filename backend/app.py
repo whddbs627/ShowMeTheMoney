@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from backend.database import init_db
 from backend.engine import bot_manager
-from backend.routes import auth, bot, price, balance, trades, market, watchlist, leaderboard, logs
+from backend.routes import auth, bot, price, balance, trades, market, watchlist, leaderboard
 
 
 @asynccontextmanager
@@ -36,4 +36,3 @@ app.include_router(trades.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(leaderboard.router, prefix="/api")
-app.include_router(logs.router, prefix="/api")

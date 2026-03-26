@@ -124,6 +124,12 @@ class UserBot:
         if self.notifier:
             self.notifier.send("[STOP] Bot stopped")
 
+    def _log(self, msg: str):
+        """Log to console + Discord webhook"""
+        logger.info(f"[User {self.user_id}] {msg}")
+        if self.notifier:
+            self.notifier.send(msg)
+
     async def _loop(self):
         while self.running:
             try:
@@ -135,7 +141,7 @@ class UserBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.exception(f"[User {self.user_id}] Bot loop error: {e}")
+                self._log(f"[ERROR] Bot loop: {e}")
                 await asyncio.sleep(60)
             await asyncio.sleep(10)
 
@@ -189,7 +195,7 @@ class UserBot:
                             "pnl_pct": None, "pnl_krw": None,
                         })
         except Exception as e:
-            logger.error(f"[User {self.user_id}][{ticker}] Tick error: {e}")
+            self._log(f"[ERROR] [{ticker}] {e}")
 
     def get_status(self) -> dict:
         uptime = (datetime.now(KST) - self.started_at).total_seconds() if self.started_at else None
