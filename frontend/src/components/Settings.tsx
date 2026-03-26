@@ -11,6 +11,7 @@ export default function Settings() {
   });
   const [hasKeys, setHasKeys] = useState(false);
   const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     getMe().then((data) => {
@@ -20,56 +21,72 @@ export default function Settings() {
     });
   }, []);
 
-  const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(""), 3000); };
-
-  const handleSaveKeys = async () => {
-    if (!accessKey || !secretKey) return;
-    await saveApiKeys(accessKey, secretKey);
-    setHasKeys(true);
-    setAccessKey(""); setSecretKey("");
-    showMsg("API keys saved (encrypted)");
+  const showMsg = (text: string, isError = false) => {
+    setMsg((isError ? "ERROR: " : "") + text);
+    setTimeout(() => setMsg(""), 4000);
   };
 
-  const handleSaveDiscord = async () => {
-    await saveDiscord(discordUrl);
-    showMsg("Discord webhook saved");
-  };
+  const handleSaveAll = async () => {
+    setSaving(true);
+    try {
+      // Save API keys only if new values entered
+      if (accessKey && secretKey) {
+        await saveApiKeys(accessKey, secretKey);
+        setHasKeys(true);
+        setAccessKey("");
+        setSecretKey("");
+      }
 
-  const handleSaveStrategy = async () => {
-    await saveStrategy(strategy);
-    showMsg("Strategy saved");
+      await saveDiscord(discordUrl);
+      await saveStrategy(strategy);
+      showMsg("All settings saved successfully!");
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "Save failed", true);
+    }
+    setSaving(false);
   };
 
   return (
     <>
       {msg && (
-        <div style={{ background: "#22c55e22", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 16px", marginBottom: 16, color: "#22c55e", fontSize: 13 }}>
+        <div style={{
+          background: msg.startsWith("ERROR") ? "#ef444422" : "#22c55e22",
+          border: `1px solid ${msg.startsWith("ERROR") ? "#ef4444" : "#22c55e"}`,
+          borderRadius: 8, padding: "8px 16px", marginBottom: 16,
+          color: msg.startsWith("ERROR") ? "#ef4444" : "#22c55e", fontSize: 13,
+        }}>
           {msg}
         </div>
       )}
 
       <div className="card">
-        <h3>Upbit API Keys {hasKeys && <span style={{ color: "#22c55e", fontSize: 12 }}>Configured</span>}</h3>
-        <input className="input" type="password" placeholder="Access Key" value={accessKey} onChange={(e) => setAccessKey(e.target.value)} />
-        <input className="input" type="password" placeholder="Secret Key" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
-        <button className="btn btn-start" style={{ width: "100%", marginTop: 4 }} onClick={handleSaveKeys}>
-          Save API Keys
-        </button>
-        <p style={{ color: "#888", fontSize: 11, marginTop: 8 }}>Keys are encrypted before storage.</p>
+        <h3>
+          Upbit API Keys
+          {hasKeys
+            ? <span style={{ color: "#22c55e", fontSize: 12, marginLeft: 8 }}>Saved</span>
+            : <span style={{ color: "#ef4444", fontSize: 12, marginLeft: 8 }}>Not configured</span>
+          }
+        </h3>
+        <input className="input" type="password" placeholder={hasKeys ? "Leave blank to keep current key" : "Access Key"} value={accessKey} onChange={(e) => setAccessKey(e.target.value)} />
+        <input className="input" type="password" placeholder={hasKeys ? "Leave blank to keep current key" : "Secret Key"} value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
+        <p style={{ color: "#666", fontSize: 11, marginTop: 4 }}>Encrypted (AES) before storage. Leave blank to keep existing keys.</p>
       </div>
 
       <div className="card">
-        <h3>Discord Notification</h3>
-        <input className="input" type="text" placeholder="Discord Webhook URL" value={discordUrl} onChange={(e) => setDiscordUrl(e.target.value)} />
-        <button className="btn btn-start" style={{ width: "100%", marginTop: 4 }} onClick={handleSaveDiscord}>
-          Save Webhook
-        </button>
+        <h3>
+          Discord Notification
+          {discordUrl
+            ? <span style={{ color: "#22c55e", fontSize: 12, marginLeft: 8 }}>Saved</span>
+            : <span style={{ color: "#888", fontSize: 12, marginLeft: 8 }}>Optional</span>
+          }
+        </h3>
+        <input className="input" type="text" placeholder="https://discord.com/api/webhooks/..." value={discordUrl} onChange={(e) => setDiscordUrl(e.target.value)} />
       </div>
 
       <div className="card">
         <h3>Trading Strategy</h3>
         <div className="setting-row">
-          <label>K Value (Volatility)</label>
+          <label>K Value (Volatility Breakout)</label>
           <input type="number" step="0.1" min="0.1" max="1.0" value={strategy.k} onChange={(e) => setStrategy({ ...strategy, k: +e.target.value })} className="input-sm" />
         </div>
         <div className="setting-row">
@@ -89,13 +106,19 @@ export default function Settings() {
           <input type="number" step="0.01" min="0.01" max="0.2" value={strategy.loss_pct} onChange={(e) => setStrategy({ ...strategy, loss_pct: +e.target.value })} className="input-sm" />
         </div>
         <div className="setting-row">
-          <label>Max Investment (KRW/coin)</label>
+          <label>Max Investment (KRW per coin)</label>
           <input type="number" step="10000" min="5000" value={strategy.max_investment_krw} onChange={(e) => setStrategy({ ...strategy, max_investment_krw: +e.target.value })} className="input-sm" />
         </div>
-        <button className="btn btn-start" style={{ width: "100%", marginTop: 8 }} onClick={handleSaveStrategy}>
-          Save Strategy
-        </button>
       </div>
+
+      <button
+        className="btn btn-start"
+        style={{ width: "100%", padding: 14, fontSize: 16 }}
+        onClick={handleSaveAll}
+        disabled={saving}
+      >
+        {saving ? "Saving..." : "Save All Settings"}
+      </button>
     </>
   );
 }
