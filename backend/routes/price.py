@@ -130,15 +130,18 @@ async def get_price(user: dict = Depends(get_current_user)):
 
 # 차트 데이터 API
 @router.get("/chart/{ticker}")
-async def get_chart(ticker: str, days: int = 30):
+async def get_chart(ticker: str, interval: str = "day", count: int = 30):
+    """interval: minute60, minute30, minute10, minute5, minute1, day, week, month"""
     try:
-        df = await asyncio.to_thread(pyupbit.get_ohlcv, ticker, interval="day", count=days)
+        df = await asyncio.to_thread(pyupbit.get_ohlcv, ticker, interval=interval, count=count)
         if df is None or len(df) == 0:
             return []
+
+        fmt = "%m/%d %H:%M" if "minute" in interval else "%m/%d"
         result = []
         for idx, row in df.iterrows():
             result.append({
-                "date": idx.strftime("%m/%d"),
+                "date": idx.strftime(fmt),
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),

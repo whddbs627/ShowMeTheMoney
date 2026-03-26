@@ -57,10 +57,22 @@ export default function BalanceCard({ balance, pnl }: Props) {
       {showDemoSetup && (
         <div style={{ marginTop: 8, padding: 8, background: "#16162a", borderRadius: 6 }}>
           <div style={{ marginBottom: 6 }}>
-            <input type="number" placeholder="가상 잔고 (원)" value={demoAmount}
-              onChange={(e) => setDemoAmount(e.target.value)}
-              style={{ width: "100%", padding: "4px 8px", fontSize: 11, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0", boxSizing: "border-box" }} />
-            <p style={{ color: "#666", fontSize: 10, margin: "4px 0 0" }}>{isDemo ? "보유 원화를 변경합니다" : "최대 100억원 · 가상 보유 코인은 초기화됩니다"}</p>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              {[1000000, 10000000, 100000000, 1000000000].map((v) => (
+                <button key={v} onClick={() => setDemoAmount(String(v))}
+                  style={{
+                    flex: 1, padding: "4px", fontSize: 10, borderRadius: 4, border: "none", cursor: "pointer",
+                    background: demoAmount === String(v) ? "#3b82f622" : "#0f0f23",
+                    color: demoAmount === String(v) ? "#3b82f6" : "#888",
+                  }}>
+                  {v >= 100000000 ? `${v / 100000000}억` : `${v / 10000}만`}
+                </button>
+              ))}
+            </div>
+            <input type="text" inputMode="numeric" placeholder="가상 잔고 (원)" value={Number(demoAmount).toLocaleString()}
+              onChange={(e) => setDemoAmount(e.target.value.replace(/[^0-9]/g, ""))}
+              style={{ width: "100%", padding: "6px 8px", fontSize: 12, borderRadius: 4, border: "1px solid #2a2a4a", background: "#0f0f23", color: "#f0f0f0", boxSizing: "border-box", textAlign: "right" }} />
+            <p style={{ color: "#666", fontSize: 10, margin: "4px 0 0" }}>{isDemo ? "보유 원화를 변경합니다" : "가상 보유 코인은 초기화됩니다"}</p>
           </div>
           <button onClick={handleToggle}
             style={{ width: "100%", padding: "6px", fontSize: 11, borderRadius: 4, border: "none", cursor: "pointer", background: isDemo ? "#3b82f6" : "#eab308", color: isDemo ? "#fff" : "#000" }}>

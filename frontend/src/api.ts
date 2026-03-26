@@ -114,8 +114,8 @@ export const cancelOrder = (uuid: string) =>
   });
 
 // Chart
-export const getChart = (ticker: string, days = 30) =>
-  fetchJSON<{ date: string; open: number; high: number; low: number; close: number; volume: number }[]>(`/chart/${ticker}?days=${days}`);
+export const getChart = (ticker: string, interval = "day", count = 30) =>
+  fetchJSON<{ date: string; open: number; high: number; low: number; close: number; volume: number }[]>(`/chart/${ticker}?interval=${interval}&count=${count}`);
 
 // Version (for auto-refresh)
 export const getVersion = () => fetchJSON<{ version: string }>("/version");
