@@ -61,6 +61,7 @@ export const saveStrategy = (strategy: Record<string, unknown>) =>
 export const getBotStatus = () => fetchJSON<{ running: boolean; uptime_seconds: number | null; coins: unknown[] }>("/bot/status");
 export const startBot = () => fetchJSON<{ message: string }>("/bot/start", { method: "POST" });
 export const stopBot = () => fetchJSON<{ message: string }>("/bot/stop", { method: "POST" });
+export const getPrice = () => fetchJSON<{ coins: unknown[] }>("/price");
 
 // Data
 export const getBalance = () => fetchJSON<{ krw_balance: number | null; coins: unknown[]; total_krw: number | null }>("/balance");

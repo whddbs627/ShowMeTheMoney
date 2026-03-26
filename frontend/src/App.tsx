@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist, getMe } from "./api";
-import type { BotStatus, BalanceInfo, TradeRecord, PnlPoint } from "./types";
+import { getBotStatus, getBalance, getTrades, getPnl, getWatchlist, getMe, getPrice } from "./api";
+import type { BotStatus, BalanceInfo, TradeRecord, PnlPoint, CoinStatus } from "./types";
 import AuthPage from "./components/AuthPage";
 import StatusCard from "./components/StatusCard";
 import PriceDisplay from "./components/PriceDisplay";
@@ -27,6 +27,7 @@ function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
   const [username, setUsername] = useState("");
   const [status, setStatus] = useState<BotStatus | null>(null);
+  const [coins, setCoins] = useState<CoinStatus[]>([]);
   const [balance, setBalance] = useState<BalanceInfo | null>(null);
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [pnl, setPnl] = useState<PnlPoint[]>([]);
@@ -36,7 +37,11 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchFast = useCallback(async () => {
-    try { setStatus(await getBotStatus() as BotStatus); } catch { /* */ }
+    try {
+      const [s, p] = await Promise.all([getBotStatus(), getPrice()]);
+      setStatus(s as BotStatus);
+      setCoins((p as { coins: CoinStatus[] }).coins || []);
+    } catch { /* */ }
   }, []);
 
   const fetchSlow = useCallback(async () => {
@@ -80,11 +85,7 @@ function App() {
         </div>
       </div>
 
-      {showSettings && (
-        <div style={{ marginBottom: 16 }}>
-          <Settings />
-        </div>
-      )}
+      {showSettings && <div style={{ marginBottom: 16 }}><Settings /></div>}
 
       <div className="tabs">
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
@@ -100,7 +101,7 @@ function App() {
             <StatusCard status={status} onAction={handleAction} />
             <BalanceCard balance={balance} pnl={pnl} />
           </div>
-          <PriceDisplay coins={status?.coins ?? []} watchlist={watchlistTickers} onRemove={fetchWatchlist} lossPct={lossPct} />
+          <PriceDisplay coins={coins} watchlist={watchlistTickers} onRemove={fetchWatchlist} lossPct={lossPct} />
           <CoinSearch watchlist={watchlistTickers} onAdd={fetchWatchlist} />
           <TopGainers watchlist={watchlistTickers} onAdd={fetchWatchlist} />
         </>
