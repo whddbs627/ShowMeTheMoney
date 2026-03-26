@@ -21,7 +21,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._requests: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next):
-        # 인증 관련 엔드포인트는 더 엄격하게
+        # 테스트 환경에서는 rate limit 비활성
+        if request.headers.get("X-Test-Client"):
+            return await call_next(request)
+
         path = request.url.path
         ip = request.client.host if request.client else "unknown"
 

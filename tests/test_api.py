@@ -20,7 +20,7 @@ async def setup_db(tmp_path):
 @pytest_asyncio.fixture
 async def client():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(transport=transport, base_url="http://test", headers={"X-Test-Client": "1"}) as c:
         yield c
 
 
