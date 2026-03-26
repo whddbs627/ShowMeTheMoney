@@ -80,7 +80,7 @@ class UserBot:
         self.coin_states.pop(ticker, None)
 
     async def _sync_holdings_to_watchlist(self):
-        """보유 중인 코인을 watchlist에 자동 추가"""
+        """보유 중인 코인을 watchlist에 자동 추가 + trader holding 상태 동기화"""
         if not self.api:
             return
         try:
@@ -95,11 +95,23 @@ class UserBot:
                 avg_price = float(b.get("avg_buy_price", 0))
                 if balance > 0 and avg_price > 0:
                     ticker = f"KRW-{currency}"
+                    # watchlist에 없으면 추가
                     if ticker not in self.tickers:
                         self.tickers.append(ticker)
                         await add_to_watchlist(self.user_id, ticker)
                         self._add_coin(ticker)
-                        self._log(f"[AUTO] Added holding {ticker} to watchlist")
+                        self._log(f"[AUTO] 보유 코인 {ticker} 워치리스트에 추가", "info")
+
+                    # trader의 holding 상태 동기화
+                    trader = self.traders.get(ticker)
+                    if trader and not trader.holding:
+                        current_price = await asyncio.to_thread(self.api.get_current_price, ticker)
+                        if current_price and balance * current_price > 5000:
+                            trader.holding = True
+                            trader.buy_price = avg_price
+                            trader.buy_date = trader._get_trading_date()
+                            trader.bought_today = True
+                            logger.info(f"[User {self.user_id}] Synced holding: {ticker} avg={avg_price:,.0f}")
         except Exception as e:
             logger.error(f"[User {self.user_id}] Sync holdings error: {e}")
 
