@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import pyupbit
@@ -6,6 +7,9 @@ import pyupbit
 from backend.engine import bot_manager
 from backend.auth import get_current_user, decrypt_key
 from backend.database import get_watchlist, insert_trade, get_demo_holdings, demo_buy, demo_sell, update_demo_mode, get_coin_targets, set_coin_target, count_demo_users
+from backend.upbit_cache import price_cache
+
+logger = logging.getLogger(__name__)
 from backend.demo_guard import (
     get_demo_api, has_demo_api, check_trade_cooldown,
     check_daily_limit, record_trade, check_balance_limit,
@@ -38,7 +42,12 @@ async def get_balance(user: dict = Depends(get_current_user)):
         total = demo_balance
         coins = []
         for ticker in tickers:
-            price = await asyncio.to_thread(pyupbit.get_current_price, ticker)
+            try:
+                price = await price_cache.get_or_fetch(
+                    f"price:{ticker}", pyupbit.get_current_price, ticker
+                )
+            except Exception:
+                price = None
             h = next((x for x in holdings if x["ticker"] == ticker), None)
             vol = h["volume"] if h else 0
             value = vol * (price or 0)
@@ -108,7 +117,12 @@ async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
         demo_bal = user.get("demo_balance", 0)
         if req.amount_krw > demo_bal:
             raise HTTPException(400, "가상 잔고가 부족합니다")
-        price = await asyncio.to_thread(pyupbit.get_current_price, req.ticker)
+        try:
+            price = await price_cache.get_or_fetch(
+                f"price:{req.ticker}", pyupbit.get_current_price, req.ticker
+            )
+        except Exception:
+            price = None
         if not price:
             raise HTTPException(400, "가격 조회 실패")
         buy_price = req.limit_price or price
@@ -171,7 +185,12 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
         if limit_err:
             raise HTTPException(429, limit_err)
 
-        price = await asyncio.to_thread(pyupbit.get_current_price, req.ticker)
+        try:
+            price = await price_cache.get_or_fetch(
+                f"price:{req.ticker}", pyupbit.get_current_price, req.ticker
+            )
+        except Exception:
+            price = None
         if not price:
             raise HTTPException(400, "가격 조회 실패")
         sell_price = req.limit_price or price
