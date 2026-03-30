@@ -38,6 +38,7 @@ rsync -avz --exclude '.git' \
     --exclude 'logs' \
     --exclude '__pycache__' \
     --exclude '*.pem' \
+    --exclude '.env' \
     -e "ssh $SSH_OPTS" \
     ./ ec2-user@${EC2_IP}:${REMOTE_DIR}/
 
