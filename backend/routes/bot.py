@@ -36,8 +36,15 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
 
 @router.post("/bot/start")
 async def start_bot(user: dict = Depends(get_current_user)):
-    if not user.get("encrypted_access_key"):
+    is_demo = bool(user.get("is_demo", 0))
+
+    if not is_demo and not user.get("encrypted_access_key"):
         raise HTTPException(400, "설정에서 API 키를 먼저 입력해주세요")
+
+    if is_demo:
+        from backend.demo_guard import has_demo_api
+        if not has_demo_api():
+            raise HTTPException(400, "서버에 데모용 API 키가 설정되지 않았습니다")
 
     try:
         bot = bot_manager.get_or_create_bot(user["id"], user)

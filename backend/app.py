@@ -51,11 +51,17 @@ async def _restore_bots():
 
         for uid in running_ids:
             user = await get_user_by_id(uid)
-            if user and user.get("encrypted_access_key"):
+            if not user:
+                continue
+            # 실제 유저: API 키 필요, 데모 유저: 공유 API 키 사용
+            is_demo = bool(user.get("is_demo", 0))
+            has_keys = bool(user.get("encrypted_access_key"))
+            if has_keys or is_demo:
                 try:
                     bot = bot_manager.get_or_create_bot(uid, user)
                     await bot.start(user)
-                    _logger.info(f"Restored bot for user {uid}")
+                    mode = "demo" if is_demo else "real"
+                    _logger.info(f"Restored {mode} bot for user {uid}")
                 except Exception as e:
                     _logger.error(f"Failed to restore bot for user {uid}: {e}")
     except Exception as e:

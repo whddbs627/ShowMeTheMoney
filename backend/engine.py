@@ -10,8 +10,12 @@ from upbit_api import UpbitAPI
 from strategy import should_buy, calc_target_price, calc_rsi, check_ma_filter
 from trader import Trader
 from notifier import Notifier
-from backend.database import insert_trade, get_watchlist, add_to_watchlist, save_balance_snapshot
+from backend.database import (
+    insert_trade, get_watchlist, add_to_watchlist, save_balance_snapshot,
+    get_demo_holdings, demo_buy, demo_sell, get_user_by_id,
+)
 from backend.auth import decrypt_key
+from backend.demo_guard import get_demo_api, check_trade_cooldown, check_daily_limit, record_trade
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ class UserBot:
         self.started_at: datetime | None = None
         self.tickers: list[str] = []
         self._loop_count = 0
+        self.is_demo = bool(user.get("is_demo", 0))
+        self.demo_balance = user.get("demo_balance", 10000000)
 
         self.k = user.get("strategy_k", 0.5)
         self.use_ma = bool(user.get("strategy_ma", 1))
@@ -63,6 +69,31 @@ class UserBot:
         self.coin_states = {}
         for ticker in self.tickers:
             self._add_coin(ticker)
+
+    def _init_components_demo(self, demo_api: UpbitAPI, discord_url: str):
+        """데모 모드 초기화: 공유 API로 시세만 조회"""
+        self.api = demo_api
+        self.notifier = Notifier(discord_url)
+        self.traders = {}
+        self.coin_states = {}
+        for ticker in self.tickers:
+            self._add_coin(ticker)
+
+    async def _sync_demo_holdings(self):
+        """데모 보유 코인 상태를 trader에 동기화"""
+        holdings = await get_demo_holdings(self.user_id)
+        for h in holdings:
+            ticker = h["ticker"]
+            if ticker not in self.tickers:
+                self.tickers.append(ticker)
+                await add_to_watchlist(self.user_id, ticker)
+                self._add_coin(ticker)
+            trader = self.traders.get(ticker)
+            if trader and h["volume"] > 0:
+                trader.holding = True
+                trader.buy_price = h["avg_price"]
+                trader.buy_date = trader._get_trading_date()
+                trader.bought_today = True
 
     def _add_coin(self, ticker: str):
         if ticker in self.traders or not self.api:
@@ -122,35 +153,44 @@ class UserBot:
         if self.running:
             return
 
-        enc_access = user.get("encrypted_access_key")
-        enc_secret = user.get("encrypted_secret_key")
-        if not enc_access or not enc_secret:
-            raise ValueError("API keys not configured")
-
-        access_key = decrypt_key(enc_access)
-        secret_key = decrypt_key(enc_secret)
+        self.is_demo = bool(user.get("is_demo", 0))
         discord_url = user.get("discord_webhook_url", "")
 
-        self.tickers = await get_watchlist(self.user_id)
-
-        self._init_components(access_key, secret_key, discord_url)
-
-        # 보유 코인을 watchlist에 자동 추가
-        await self._sync_holdings_to_watchlist()
+        if self.is_demo:
+            # 데모 모드: 서버 공유 API 키로 시세 조회
+            demo_api = get_demo_api()
+            if not demo_api:
+                raise ValueError("서버에 데모용 API 키가 설정되지 않았습니다")
+            self.tickers = await get_watchlist(self.user_id)
+            self._init_components_demo(demo_api, discord_url)
+            # 데모 보유 상태 동기화
+            await self._sync_demo_holdings()
+        else:
+            # 실제 모드: 유저 개인 API 키
+            enc_access = user.get("encrypted_access_key")
+            enc_secret = user.get("encrypted_secret_key")
+            if not enc_access or not enc_secret:
+                raise ValueError("API keys not configured")
+            access_key = decrypt_key(enc_access)
+            secret_key = decrypt_key(enc_secret)
+            self.tickers = await get_watchlist(self.user_id)
+            self._init_components(access_key, secret_key, discord_url)
+            # 보유 코인을 watchlist에 자동 추가
+            await self._sync_holdings_to_watchlist()
+            for trader in self.traders.values():
+                await asyncio.to_thread(trader.sync_position)
 
         if not self.tickers:
             raise ValueError("Add coins to your watchlist first")
-
-        for trader in self.traders.values():
-            await asyncio.to_thread(trader.sync_position)
 
         self.running = True
         self.started_at = datetime.now(KST)
         self._loop_count = 0
         self.task = asyncio.create_task(self._loop())
 
+        mode = "[가상] " if self.is_demo else ""
         coins = ", ".join(self.tickers)
-        self._log(f"[START] 봇 시작\n코인: {coins}", "start_stop")
+        self._log(f"[START] {mode}봇 시작\n코인: {coins}", "start_stop")
 
     async def stop(self):
         if not self.running:
@@ -204,12 +244,21 @@ class UserBot:
 
     async def _save_balance(self):
         try:
-            krw = await asyncio.to_thread(self.api.get_krw_balance) or 0
-            coin_value = 0
-            for ticker in self.tickers:
-                bal = await asyncio.to_thread(self.api.get_balance, ticker)
-                price = await asyncio.to_thread(self.api.get_current_price, ticker)
-                coin_value += (bal or 0) * (price or 0)
+            if self.is_demo:
+                user = await get_user_by_id(self.user_id)
+                krw = user.get("demo_balance", 0) if user else 0
+                coin_value = 0
+                holdings = await get_demo_holdings(self.user_id)
+                for h in holdings:
+                    price = await asyncio.to_thread(self.api.get_current_price, h["ticker"])
+                    coin_value += h["volume"] * (price or 0)
+            else:
+                krw = await asyncio.to_thread(self.api.get_krw_balance) or 0
+                coin_value = 0
+                for ticker in self.tickers:
+                    bal = await asyncio.to_thread(self.api.get_balance, ticker)
+                    price = await asyncio.to_thread(self.api.get_current_price, ticker)
+                    coin_value += (bal or 0) * (price or 0)
             total = krw + coin_value
             await save_balance_snapshot(self.user_id, krw, coin_value, total)
         except Exception as e:
@@ -234,68 +283,174 @@ class UserBot:
             state.rsi = float(calc_rsi(df_long))
             state.ma_bullish = bool(check_ma_filter(df_long))
 
-            # 수동 매수 등으로 trader가 holding을 모르는 경우 자동 sync
+            if self.is_demo:
+                await self._tick_demo(ticker, trader, price)
+            else:
+                await self._tick_real(ticker, trader, price, df_short, df_long)
+
+        except Exception as e:
+            self._log(f"[ERROR] [{ticker}] {e}", "error")
+
+    async def _tick_demo(self, ticker: str, trader: Trader, price: float):
+        """데모 모드 매매 로직: DB 가상잔고 사용"""
+        # 데모 보유 상태 동기화
+        holdings = await get_demo_holdings(self.user_id)
+        demo_h = next((h for h in holdings if h["ticker"] == ticker), None)
+
+        if demo_h and demo_h["volume"] > 0:
             if not trader.holding:
-                bal = await asyncio.to_thread(self.api.get_balance, ticker)
-                if bal and bal > 0 and price and bal * price > 5000:
-                    avg = await asyncio.to_thread(self.api.get_avg_buy_price, ticker)
-                    if avg and avg > 0:
-                        trader.holding = True
-                        trader.buy_price = avg
-                        trader.buy_date = trader._get_trading_date()
-                        trader.bought_today = True
-                        logger.info(f"[User {self.user_id}] Auto-synced holding: {ticker} avg={avg:,.0f}")
+                trader.holding = True
+                trader.buy_price = demo_h["avg_price"]
+                trader.buy_date = trader._get_trading_date()
+                trader.bought_today = True
 
-            if trader.holding:
-                buy_price_snapshot = trader.buy_price
-                buy_date_snapshot = trader.buy_date
-                # 매도 전 잔고 확인 (매도 후에는 0이 됨)
-                coin_bal = await asyncio.to_thread(self.api.get_balance, ticker) or 0
-                sell_amount = coin_bal * price
+        if trader.holding:
+            # 매도 조건 확인 (trader 내부 로직 재사용)
+            buy_price_snapshot = trader.buy_price
+            buy_date_snapshot = trader.buy_date
+            trader._check_daily_reset()
+            trading_date = trader._get_trading_date()
 
-                sold = await asyncio.to_thread(trader.check_and_sell, price)
-                if sold:
-                    pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100 if buy_price_snapshot > 0 else 0
-                    pnl_krw = sell_amount * pnl_pct / 100
+            is_new_day = buy_date_snapshot and trading_date > buy_date_snapshot
+            is_stop_loss = price < buy_price_snapshot * (1 - self.loss_pct)
+            is_take_profit = self.take_profit_pct > 0 and price > buy_price_snapshot * (1 + self.take_profit_pct)
 
-                    from datetime import timezone as tz, timedelta as td
-                    trading_date = datetime.now(timezone(timedelta(hours=9)))
-                    if trading_date.hour < 9:
-                        trading_date_d = (trading_date - timedelta(days=1)).date()
-                    else:
-                        trading_date_d = trading_date.date()
-                    reason = "NEXT_DAY" if buy_date_snapshot and trading_date_d > buy_date_snapshot else "STOP_LOSS"
+            reason = None
+            if is_take_profit:
+                reason = "TAKE_PROFIT"
+            elif is_new_day:
+                reason = "NEXT_DAY"
+            elif is_stop_loss:
+                reason = "STOP_LOSS"
+
+            if reason:
+                result = await demo_sell(self.user_id, ticker, price)
+                if "error" not in result:
+                    pnl_pct = result.get("pnl_pct", 0)
+                    sell_amount = result.get("sell_amount", 0)
+                    trader.holding = False
+                    trader.buy_price = 0.0
+                    trader.bought_today = True
+                    record_trade(self.user_id)
+
+                    reason_kr = {"NEXT_DAY": "익일매도", "STOP_LOSS": "손절", "TAKE_PROFIT": "익절"}.get(reason, reason)
+                    self._log(f"[가상매도 - {reason_kr}] {ticker} {price:,.0f}원 (수익률: {pnl_pct:+.2f}%)", "sell")
 
                     await insert_trade(self.user_id, {
                         "timestamp": datetime.now(KST).isoformat(),
                         "side": "SELL", "ticker": ticker, "price": price,
                         "amount_krw": round(sell_amount, 0),
-                        "volume": coin_bal,
-                        "reason": reason,
+                        "volume": result.get("volume", 0),
+                        "reason": f"DEMO_{reason}",
                         "pnl_pct": round(pnl_pct, 2),
-                        "pnl_krw": round(pnl_krw, 0),
+                        "pnl_krw": round(sell_amount * pnl_pct / 100, 0),
                     })
-            else:
-                signal = should_buy(
-                    df_short, df_long, price, self.k,
-                    self.use_ma, self.use_rsi, self.rsi_lower,
-                    strategy_type=self.strategy_type,
-                )
-                if signal:
-                    krw = await asyncio.to_thread(self.api.get_krw_balance)
-                    amount = min((krw or 0) * self.investment_ratio, self.max_investment)
-                    bought = await asyncio.to_thread(trader.check_and_buy, price, signal)
-                    if bought:
-                        volume = amount / price if price > 0 else 0
-                        await insert_trade(self.user_id, {
-                            "timestamp": datetime.now(KST).isoformat(),
-                            "side": "BUY", "ticker": ticker, "price": price,
-                            "amount_krw": round(amount, 0),
-                            "volume": volume,
-                            "reason": None, "pnl_pct": None, "pnl_krw": None,
-                        })
-        except Exception as e:
-            self._log(f"[ERROR] [{ticker}] {e}", "error")
+        else:
+            # 매수 시그널 확인
+            if trader.bought_today:
+                return
+
+            df_short = await asyncio.to_thread(self.api.get_ohlcv, ticker, "day", 2)
+            df_long = await asyncio.to_thread(self.api.get_ohlcv, ticker, "day", 21)
+            if df_short is None or df_long is None:
+                return
+
+            signal = should_buy(
+                df_short, df_long, price, self.k,
+                self.use_ma, self.use_rsi, self.rsi_lower,
+                strategy_type=self.strategy_type,
+            )
+            if not signal:
+                return
+
+            # 쿨다운 확인
+            if check_trade_cooldown(self.user_id) or check_daily_limit(self.user_id):
+                return
+
+            # 가상 잔고 확인
+            user = await get_user_by_id(self.user_id)
+            demo_bal = user.get("demo_balance", 0) if user else 0
+            amount = min(demo_bal * self.investment_ratio, self.max_investment)
+            if amount < 5000:
+                return
+
+            await demo_buy(self.user_id, ticker, price, amount)
+            record_trade(self.user_id)
+            trader.holding = True
+            trader.buy_price = price
+            trader.buy_date = trader._get_trading_date()
+            trader.bought_today = True
+
+            self._log(f"[가상매수] {ticker} {price:,.0f}원 ({amount:,.0f}원)", "buy")
+
+            await insert_trade(self.user_id, {
+                "timestamp": datetime.now(KST).isoformat(),
+                "side": "BUY", "ticker": ticker, "price": price,
+                "amount_krw": round(amount, 0),
+                "volume": amount / price if price > 0 else 0,
+                "reason": "DEMO", "pnl_pct": None, "pnl_krw": None,
+            })
+
+    async def _tick_real(self, ticker: str, trader: Trader, price: float, df_short, df_long):
+        """실제 모드 매매 로직: Upbit API 사용"""
+        # 수동 매수 등으로 trader가 holding을 모르는 경우 자동 sync
+        if not trader.holding:
+            bal = await asyncio.to_thread(self.api.get_balance, ticker)
+            if bal and bal > 0 and price and bal * price > 5000:
+                avg = await asyncio.to_thread(self.api.get_avg_buy_price, ticker)
+                if avg and avg > 0:
+                    trader.holding = True
+                    trader.buy_price = avg
+                    trader.buy_date = trader._get_trading_date()
+                    trader.bought_today = True
+                    logger.info(f"[User {self.user_id}] Auto-synced holding: {ticker} avg={avg:,.0f}")
+
+        if trader.holding:
+            buy_price_snapshot = trader.buy_price
+            buy_date_snapshot = trader.buy_date
+            coin_bal = await asyncio.to_thread(self.api.get_balance, ticker) or 0
+            sell_amount = coin_bal * price
+
+            sold = await asyncio.to_thread(trader.check_and_sell, price)
+            if sold:
+                pnl_pct = ((price - buy_price_snapshot) / buy_price_snapshot) * 100 if buy_price_snapshot > 0 else 0
+                pnl_krw = sell_amount * pnl_pct / 100
+
+                trading_date = datetime.now(KST)
+                if trading_date.hour < 9:
+                    trading_date_d = (trading_date - timedelta(days=1)).date()
+                else:
+                    trading_date_d = trading_date.date()
+                reason = "NEXT_DAY" if buy_date_snapshot and trading_date_d > buy_date_snapshot else "STOP_LOSS"
+
+                await insert_trade(self.user_id, {
+                    "timestamp": datetime.now(KST).isoformat(),
+                    "side": "SELL", "ticker": ticker, "price": price,
+                    "amount_krw": round(sell_amount, 0),
+                    "volume": coin_bal,
+                    "reason": reason,
+                    "pnl_pct": round(pnl_pct, 2),
+                    "pnl_krw": round(pnl_krw, 0),
+                })
+        else:
+            signal = should_buy(
+                df_short, df_long, price, self.k,
+                self.use_ma, self.use_rsi, self.rsi_lower,
+                strategy_type=self.strategy_type,
+            )
+            if signal:
+                krw = await asyncio.to_thread(self.api.get_krw_balance)
+                amount = min((krw or 0) * self.investment_ratio, self.max_investment)
+                bought = await asyncio.to_thread(trader.check_and_buy, price, signal)
+                if bought:
+                    volume = amount / price if price > 0 else 0
+                    await insert_trade(self.user_id, {
+                        "timestamp": datetime.now(KST).isoformat(),
+                        "side": "BUY", "ticker": ticker, "price": price,
+                        "amount_krw": round(amount, 0),
+                        "volume": volume,
+                        "reason": None, "pnl_pct": None, "pnl_krw": None,
+                    })
 
     def get_status(self) -> dict:
         uptime = (datetime.now(KST) - self.started_at).total_seconds() if self.started_at else None
@@ -312,7 +467,7 @@ class UserBot:
                 "rsi": state.rsi if state else None,
                 "ma_bullish": state.ma_bullish if state else None,
             })
-        return {"running": self.running, "uptime_seconds": uptime, "coins": coins}
+        return {"running": self.running, "uptime_seconds": uptime, "coins": coins, "is_demo": self.is_demo}
 
 
 class BotManager:
