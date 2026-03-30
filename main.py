@@ -44,8 +44,12 @@ def main():
     logger.info(f"Max Investment: {config.MAX_INVESTMENT_KRW:,.0f} KRW")
     logger.info(f"MA Filter: {config.USE_MA_FILTER}, RSI Filter: {config.USE_RSI_FILTER}")
 
+    if not config.UPBIT_ACCESS_KEY or not config.UPBIT_SECRET_KEY:
+        logger.error("UPBIT_ACCESS_KEY and UPBIT_SECRET_KEY must be set in .env")
+        return
+
     api = UpbitAPI(config.UPBIT_ACCESS_KEY, config.UPBIT_SECRET_KEY)
-    notifier = Notifier(config.SLACK_WEBHOOK_URL)
+    notifier = Notifier(config.DISCORD_WEBHOOK_URL)
     trader = Trader(
         api=api,
         notifier=notifier,

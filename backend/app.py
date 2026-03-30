@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -33,28 +34,20 @@ async def _restore_bots():
     """서버 재시작 시 이전 봇 상태 복원"""
     import aiosqlite
     from backend.database import DB_PATH, get_user_by_id
-    try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            cursor = await db.execute(
-                "SELECT id FROM users WHERE encrypted_access_key IS NOT NULL"
-            )
-            rows = await cursor.fetchall()
 
+    _logger = logging.getLogger(__name__)
+    try:
         # bot_running 상태 테이블 확인
         async with aiosqlite.connect(DB_PATH) as db:
-            try:
-                cursor = await db.execute("SELECT user_id FROM bot_state WHERE running=1")
-                running_ids = [r[0] for r in await cursor.fetchall()]
-            except Exception:
-                # 테이블 없으면 생성
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS bot_state (
-                        user_id INTEGER PRIMARY KEY,
-                        running INTEGER DEFAULT 0
-                    )
-                """)
-                await db.commit()
-                running_ids = []
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS bot_state (
+                    user_id INTEGER PRIMARY KEY,
+                    running INTEGER DEFAULT 0
+                )
+            """)
+            await db.commit()
+            cursor = await db.execute("SELECT user_id FROM bot_state WHERE running=1")
+            running_ids = [r[0] for r in await cursor.fetchall()]
 
         for uid in running_ids:
             user = await get_user_by_id(uid)
@@ -62,14 +55,11 @@ async def _restore_bots():
                 try:
                     bot = bot_manager.get_or_create_bot(uid, user)
                     await bot.start(user)
-                    import logging
-                    logging.getLogger(__name__).info(f"Restored bot for user {uid}")
+                    _logger.info(f"Restored bot for user {uid}")
                 except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).error(f"Failed to restore bot for user {uid}: {e}")
+                    _logger.error(f"Failed to restore bot for user {uid}: {e}")
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Bot restore failed: {e}")
+        _logger.error(f"Bot restore failed: {e}")
 
 
 app = FastAPI(title="ShowMeTheMoney", lifespan=lifespan)

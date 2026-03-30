@@ -39,6 +39,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # 만료된 요청 제거
         self._requests[key] = [t for t in self._requests[key] if now - t < self.window]
 
+        # 비어있는 키 정리 (메모리 누수 방지)
+        if not self._requests[key]:
+            del self._requests[key]
+            self._requests[key] = []
+
         if len(self._requests[key]) >= limit:
             return JSONResponse(
                 status_code=429,
@@ -46,6 +51,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
         self._requests[key].append(now)
+
+        # 주기적으로 오래된 키 전체 정리 (1000개 이상일 때)
+        if len(self._requests) > 1000:
+            stale_keys = [k for k, v in self._requests.items() if not v or now - v[-1] > self.window]
+            for k in stale_keys:
+                del self._requests[k]
+
         return await call_next(request)
 
 

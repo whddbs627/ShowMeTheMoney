@@ -3,14 +3,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Upbit API Keys
-UPBIT_ACCESS_KEY = os.getenv("UPBIT_ACCESS_KEY")
-UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
-
-if not UPBIT_ACCESS_KEY or not UPBIT_SECRET_KEY:
-    raise ValueError("UPBIT_ACCESS_KEY and UPBIT_SECRET_KEY must be set in .env")
+# Upbit API Keys (standalone bot용, 웹 대시보드는 유저별 키 사용)
+UPBIT_ACCESS_KEY = os.getenv("UPBIT_ACCESS_KEY", "")
+UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY", "")
 
 # Defaults
+TICKER = os.getenv("TICKER", "KRW-BTC")
 K = float(os.getenv("K", "0.5"))
 INVESTMENT_RATIO = float(os.getenv("INVESTMENT_RATIO", "0.5"))
 MAX_INVESTMENT_KRW = float(os.getenv("MAX_INVESTMENT_KRW", "100000"))
