@@ -390,6 +390,13 @@ async def get_coin_targets(user_id: int) -> dict[str, dict]:
         return {r["ticker"]: dict(r) for r in rows}
 
 
+async def count_demo_users() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM users WHERE is_demo=1")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+
 async def set_coin_target(user_id: int, ticker: str, buy_target: float | None, stop_loss: float | None, take_profit: float | None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(

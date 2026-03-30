@@ -6,6 +6,7 @@ from backend.engine import bot_manager
 from backend.auth import get_current_user, decrypt_key
 from backend.database import get_watchlist, get_demo_holdings
 from backend.upbit_cache import price_cache, balance_cache, ohlcv_cache
+from backend.demo_guard import get_demo_api, has_demo_api
 from strategy import calc_target_price, calc_rsi, check_ma_filter
 from upbit_api import UpbitAPI
 from backend.coin_names import get_coin_name

@@ -7,6 +7,7 @@ from backend.database import (
     create_user, get_user_by_username, update_user_keys,
     update_user_discord, update_user_strategy, update_user_notify_settings,
 )
+from backend.demo_guard import has_demo_api
 
 router = APIRouter(tags=["auth"])
 
@@ -89,6 +90,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         "has_api_keys": bool(user["encrypted_access_key"]),
         "is_demo": bool(user.get("is_demo", 0)),
         "demo_balance": user.get("demo_balance", 10000000),
+        "demo_api_available": has_demo_api(),
         "discord_webhook_url": user["discord_webhook_url"] or "",
         "notify_buy": bool(user.get("notify_buy", 1)),
         "notify_sell": bool(user.get("notify_sell", 1)),

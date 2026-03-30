@@ -5,7 +5,12 @@ import pyupbit
 
 from backend.engine import bot_manager
 from backend.auth import get_current_user, decrypt_key
-from backend.database import get_watchlist, insert_trade, get_demo_holdings, demo_buy, demo_sell, update_demo_mode, get_coin_targets, set_coin_target
+from backend.database import get_watchlist, insert_trade, get_demo_holdings, demo_buy, demo_sell, update_demo_mode, get_coin_targets, set_coin_target, count_demo_users
+from backend.demo_guard import (
+    get_demo_api, has_demo_api, check_trade_cooldown,
+    check_daily_limit, record_trade, check_balance_limit,
+    DEMO_MAX_ACCOUNTS,
+)
 from upbit_api import UpbitAPI
 from datetime import datetime, timezone, timedelta
 
@@ -90,6 +95,14 @@ async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
     is_demo = bool(user.get("is_demo", 0))
 
     if is_demo:
+        # 악용 방지: 쿨다운 및 일일 한도 확인
+        cooldown_err = check_trade_cooldown(user["id"])
+        if cooldown_err:
+            raise HTTPException(429, cooldown_err)
+        limit_err = check_daily_limit(user["id"])
+        if limit_err:
+            raise HTTPException(429, limit_err)
+
         if req.amount_krw < 5000:
             raise HTTPException(400, "최소 5,000원 이상")
         demo_bal = user.get("demo_balance", 0)
@@ -100,6 +113,7 @@ async def manual_buy(req: BuyRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(400, "가격 조회 실패")
         buy_price = req.limit_price or price
         await demo_buy(user["id"], req.ticker, buy_price, req.amount_krw)
+        record_trade(user["id"])
         await insert_trade(user["id"], {
             "timestamp": datetime.now(KST).isoformat(),
             "side": "BUY", "ticker": req.ticker, "price": buy_price,
@@ -149,6 +163,14 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
     is_demo = bool(user.get("is_demo", 0))
 
     if is_demo:
+        # 악용 방지: 쿨다운 및 일일 한도 확인
+        cooldown_err = check_trade_cooldown(user["id"])
+        if cooldown_err:
+            raise HTTPException(429, cooldown_err)
+        limit_err = check_daily_limit(user["id"])
+        if limit_err:
+            raise HTTPException(429, limit_err)
+
         price = await asyncio.to_thread(pyupbit.get_current_price, req.ticker)
         if not price:
             raise HTTPException(400, "가격 조회 실패")
@@ -156,6 +178,7 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
         result = await demo_sell(user["id"], req.ticker, sell_price)
         if "error" in result:
             raise HTTPException(400, result["error"])
+        record_trade(user["id"])
         await insert_trade(user["id"], {
             "timestamp": datetime.now(KST).isoformat(),
             "side": "SELL", "ticker": req.ticker, "price": sell_price,
@@ -249,8 +272,19 @@ class DemoModeRequest(BaseModel):
 
 @router.post("/demo/toggle")
 async def toggle_demo(req: DemoModeRequest, user: dict = Depends(get_current_user)):
-    if req.demo_balance < 0 or req.demo_balance > 10000000000:
-        raise HTTPException(400, "잔고는 0 ~ 100억 사이로 설정하세요")
+    # 잔고 상한 확인
+    bal_err = check_balance_limit(req.demo_balance)
+    if bal_err:
+        raise HTTPException(400, bal_err)
+    if req.demo_balance < 0:
+        raise HTTPException(400, "잔고는 0원 이상이어야 합니다")
+
+    # 데모 계정 수 제한
+    if req.is_demo and not bool(user.get("is_demo", 0)):
+        demo_count = await count_demo_users()
+        if demo_count >= DEMO_MAX_ACCOUNTS:
+            raise HTTPException(400, f"데모 계정 수가 한도({DEMO_MAX_ACCOUNTS}개)에 도달했습니다. 나중에 다시 시도해주세요.")
+
     await update_demo_mode(user["id"], req.is_demo, req.demo_balance)
     mode = "가상계좌" if req.is_demo else "실제계좌"
     return {"message": f"{mode} 모드로 전환되었습니다"}
