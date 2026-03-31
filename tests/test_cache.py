@@ -1,6 +1,7 @@
 """캐시 레이어 테스트"""
 import asyncio
 import pytest
+from unittest.mock import patch, AsyncMock
 from backend.upbit_cache import UpbitCache
 
 
@@ -22,16 +23,17 @@ class TestUpbitCache:
     def test_expiry(self):
         cache = UpbitCache(ttl_seconds=0.1)
         cache.set("key1", "value")
-        assert cache._is_valid("key1") is True
+        assert cache._local_is_valid("key1") is True
 
         import time
         time.sleep(0.2)
-        assert cache._is_valid("key1") is False
+        assert cache._local_is_valid("key1") is False
         # 만료되어도 get은 반환 (fallback용)
         assert cache.get("key1") == "value"
 
     @pytest.mark.asyncio
-    async def test_get_or_fetch(self):
+    async def test_get_or_fetch_no_redis(self):
+        """Redis 없이 인메모리 fallback으로 동작"""
         cache = UpbitCache(ttl_seconds=10)
         call_count = 0
 
@@ -40,15 +42,19 @@ class TestUpbitCache:
             call_count += 1
             return 42
 
-        # 첫 호출: fetch 실행
-        result = await cache.get_or_fetch("key1", fetch)
-        assert result == 42
-        assert call_count == 1
+        # Redis 없는 상태로 테스트
+        with patch("backend.upbit_cache.db_mod") as mock_db:
+            mock_db.redis_client = None
 
-        # 두 번째 호출: 캐시 반환 (fetch 안 함)
-        result = await cache.get_or_fetch("key1", fetch)
-        assert result == 42
-        assert call_count == 1
+            # 첫 호출: fetch 실행
+            result = await cache.get_or_fetch("key1", fetch)
+            assert result == 42
+            assert call_count == 1
+
+            # 두 번째 호출: 로컬 캐시 반환 (fetch 안 함)
+            result = await cache.get_or_fetch("key1", fetch)
+            assert result == 42
+            assert call_count == 1
 
     @pytest.mark.asyncio
     async def test_fetch_failure_returns_cache(self):
@@ -61,8 +67,10 @@ class TestUpbitCache:
         def failing_fetch():
             raise Exception("API error")
 
-        result = await cache.get_or_fetch("key1", failing_fetch)
-        assert result == "old_value"  # 만료된 캐시 반환
+        with patch("backend.upbit_cache.db_mod") as mock_db:
+            mock_db.redis_client = None
+            result = await cache.get_or_fetch("key1", failing_fetch)
+            assert result == "old_value"  # 만료된 캐시 반환
 
     def test_clear_user(self):
         cache = UpbitCache(ttl_seconds=10)
