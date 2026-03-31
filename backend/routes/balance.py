@@ -1,7 +1,8 @@
+import re
 import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import pyupbit
 
 from backend.engine import bot_manager
@@ -88,15 +89,32 @@ async def get_balance(user: dict = Depends(get_current_user)):
 
 # === 수동 매수/매도 ===
 
+TICKER_PATTERN = re.compile(r'^KRW-[A-Z0-9]{1,10}$')
+
+
 class BuyRequest(BaseModel):
     ticker: str
     amount_krw: float
     limit_price: float | None = None  # None이면 시장가
 
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        if not TICKER_PATTERN.match(v):
+            raise ValueError("Invalid ticker format (expected KRW-XXX)")
+        return v
+
 
 class SellRequest(BaseModel):
     ticker: str
     limit_price: float | None = None  # None이면 시장가 전량매도
+
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        if not TICKER_PATTERN.match(v):
+            raise ValueError("Invalid ticker format (expected KRW-XXX)")
+        return v
 
 
 @router.post("/order/buy")
@@ -203,7 +221,7 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
             "side": "SELL", "ticker": req.ticker, "price": sell_price,
             "amount_krw": round(result["sell_amount"], 0), "volume": result["volume"],
             "reason": "DEMO", "pnl_pct": round(result["pnl_pct"], 2),
-            "pnl_krw": round(result["sell_amount"] * result["pnl_pct"] / 100, 0),
+            "pnl_krw": round(result["sell_amount"] - result["volume"] * result["avg_price"], 0),
         })
         return {"message": f"[가상] {req.ticker} 매도 완료", "price": sell_price, "pnl_pct": round(result["pnl_pct"], 2)}
 
@@ -235,7 +253,7 @@ async def manual_sell(req: SellRequest, user: dict = Depends(get_current_user)):
 
     sell_amount = balance * sell_price
     pnl_pct = ((sell_price - avg_buy) / avg_buy * 100) if avg_buy and avg_buy > 0 else 0
-    pnl_krw = sell_amount * pnl_pct / 100
+    pnl_krw = sell_amount - balance * avg_buy if avg_buy else 0
 
     await insert_trade(user["id"], {
         "timestamp": datetime.now(KST).isoformat(),
@@ -316,6 +334,13 @@ class CoinTargetRequest(BaseModel):
     buy_target: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
+
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        if not TICKER_PATTERN.match(v):
+            raise ValueError("Invalid ticker format (expected KRW-XXX)")
+        return v
 
 
 @router.get("/targets")

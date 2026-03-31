@@ -1,5 +1,6 @@
+import re
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from backend.auth import hash_password, verify_password, create_token, encrypt_key, get_current_user
@@ -29,12 +30,25 @@ class ApiKeysRequest(BaseModel):
     secret_key: str
 
 
+DISCORD_WEBHOOK_PATTERN = re.compile(r'^https://discord\.com/api/webhooks/\d+/[\w-]+$')
+
+
 class DiscordRequest(BaseModel):
     webhook_url: str
     notify_buy: bool = True
     notify_sell: bool = True
     notify_error: bool = True
     notify_start_stop: bool = True
+
+    @field_validator("webhook_url")
+    @classmethod
+    def validate_webhook_url(cls, v: str) -> str:
+        if v and not DISCORD_WEBHOOK_PATTERN.match(v):
+            raise ValueError("Invalid Discord webhook URL format")
+        return v
+
+
+VALID_STRATEGY_TYPES = {"volatility_breakout", "rsi_bounce", "golden_cross", "combined"}
 
 
 class StrategyRequest(BaseModel):
@@ -48,11 +62,43 @@ class StrategyRequest(BaseModel):
     min_investment_krw: float = 5000
     strategy_type: str = "volatility_breakout"
 
+    @field_validator("k")
+    @classmethod
+    def validate_k(cls, v: float) -> float:
+        if not (0.0 < v <= 1.0):
+            raise ValueError("K value must be between 0 and 1")
+        return v
+
+    @field_validator("loss_pct")
+    @classmethod
+    def validate_loss_pct(cls, v: float) -> float:
+        if not (0.0 < v <= 1.0):
+            raise ValueError("Loss percentage must be between 0 and 1")
+        return v
+
+    @field_validator("take_profit_pct")
+    @classmethod
+    def validate_take_profit(cls, v: float) -> float:
+        if not (0.0 <= v <= 10.0):
+            raise ValueError("Take profit must be between 0 and 10 (1000%)")
+        return v
+
+    @field_validator("strategy_type")
+    @classmethod
+    def validate_strategy_type(cls, v: str) -> str:
+        if v not in VALID_STRATEGY_TYPES:
+            raise ValueError(f"Invalid strategy. Must be one of: {', '.join(VALID_STRATEGY_TYPES)}")
+        return v
+
 
 @router.post("/auth/register")
 async def register(req: RegisterRequest):
     if len(req.username) < 3:
         raise HTTPException(400, "아이디는 3자 이상이어야 합니다")
+    if len(req.username) > 20:
+        raise HTTPException(400, "아이디는 20자 이하여야 합니다")
+    if not re.match(r'^[a-zA-Z0-9_-]+$', req.username):
+        raise HTTPException(400, "아이디는 영문, 숫자, -, _ 만 사용 가능합니다")
     if len(req.password) < 6:
         raise HTTPException(400, "비밀번호는 6자 이상이어야 합니다")
 

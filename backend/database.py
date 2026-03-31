@@ -39,8 +39,8 @@ async def init_db():
         ]:
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col} {default}")
-            except Exception:
-                pass
+            except aiosqlite.OperationalError:
+                pass  # Column already exists
         await db.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +97,12 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+        # Indexes for foreign keys and frequently queried columns
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(user_id, timestamp)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_balance_snapshots_user_id ON balance_snapshots(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_demo_holdings_user_id ON demo_holdings(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_coin_targets_user_id ON coin_targets(user_id)")
         await db.commit()
 
 

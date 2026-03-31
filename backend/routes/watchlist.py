@@ -1,14 +1,24 @@
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+import re
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, field_validator
 from backend.database import get_watchlist, add_to_watchlist, remove_from_watchlist
 from backend.engine import bot_manager
 from backend.auth import get_current_user
 
 router = APIRouter(tags=["watchlist"])
 
+TICKER_PATTERN = re.compile(r'^KRW-[A-Z0-9]{1,10}$')
+
 
 class TickerRequest(BaseModel):
     ticker: str
+
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        if not TICKER_PATTERN.match(v):
+            raise ValueError("Invalid ticker format (expected KRW-XXX)")
+        return v
 
 
 @router.get("/watchlist")

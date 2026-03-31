@@ -261,8 +261,8 @@ class UserBot:
                     coin_value += (bal or 0) * (price or 0)
             total = krw + coin_value
             await save_balance_snapshot(self.user_id, krw, coin_value, total)
-        except Exception as e:
-            logger.error(f"[User {self.user_id}] Balance snapshot error: {e}")
+        except Exception:
+            logger.exception(f"[User {self.user_id}] Balance snapshot error")
 
     async def _tick(self, ticker: str):
         trader = self.traders.get(ticker)
@@ -303,6 +303,10 @@ class UserBot:
                 trader.buy_price = demo_h["avg_price"]
                 trader.buy_date = trader._get_trading_date()
                 trader.bought_today = True
+        elif trader.holding:
+            # DB에서 보유가 삭제됨 (수동 매도 등) → 봇 상태 동기화
+            trader.holding = False
+            trader.buy_price = 0.0
 
         if trader.holding:
             # 매도 조건 확인 (trader 내부 로직 재사용)
@@ -343,7 +347,7 @@ class UserBot:
                         "volume": result.get("volume", 0),
                         "reason": f"DEMO_{reason}",
                         "pnl_pct": round(pnl_pct, 2),
-                        "pnl_krw": round(sell_amount * pnl_pct / 100, 0),
+                        "pnl_krw": round(sell_amount - result.get("volume", 0) * result.get("avg_price", 0), 0),
                     })
         else:
             # 매수 시그널 확인

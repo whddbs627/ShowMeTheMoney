@@ -1,5 +1,6 @@
+import re
 import asyncio
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 import pyupbit
 
 from backend.engine import bot_manager
@@ -123,9 +124,17 @@ async def get_price(user: dict = Depends(get_current_user)):
     return {"coins": coins}
 
 
+TICKER_PATTERN = re.compile(r'^KRW-[A-Z0-9]{1,10}$')
+VALID_INTERVALS = {"minute1", "minute3", "minute5", "minute10", "minute15", "minute30", "minute60", "minute240", "day", "week", "month"}
+
+
 # 차트 데이터 API
 @router.get("/chart/{ticker}")
-async def get_chart(ticker: str, interval: str = "day", count: int = 30):
+async def get_chart(ticker: str, interval: str = "day", count: int = Query(30, ge=1, le=200)):
+    if not TICKER_PATTERN.match(ticker):
+        raise HTTPException(400, "Invalid ticker format")
+    if interval not in VALID_INTERVALS:
+        raise HTTPException(400, f"Invalid interval. Must be one of: {', '.join(sorted(VALID_INTERVALS))}")
     try:
         df = await _cached_ohlcv(ticker, interval, count)
         if df is None or len(df) == 0:

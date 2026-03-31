@@ -9,15 +9,29 @@ from cryptography.fernet import Fernet
 
 from backend.database import get_user_by_id
 
-# JWT - 환경변수가 없으면 랜덤 생성 (서버 재시작 시 기존 토큰 무효화)
-SECRET_KEY = os.getenv("JWT_SECRET") or hashlib.sha256(os.urandom(32)).hexdigest()
+# JWT
+SECRET_KEY = os.getenv("JWT_SECRET", "")
+if not SECRET_KEY:
+    import warnings
+    SECRET_KEY = hashlib.sha256(os.urandom(32)).hexdigest()
+    warnings.warn(
+        "JWT_SECRET is not set! Generated a random key — all tokens will be "
+        "invalidated on server restart. Set JWT_SECRET in .env for production.",
+        stacklevel=1,
+    )
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
 # API key encryption
 ENCRYPT_KEY = os.getenv("ENCRYPT_KEY", "")
 if not ENCRYPT_KEY:
+    import warnings
     ENCRYPT_KEY = Fernet.generate_key().decode()
+    warnings.warn(
+        "ENCRYPT_KEY is not set! Generated a random key — previously encrypted "
+        "API keys will be unrecoverable after restart. Set ENCRYPT_KEY in .env.",
+        stacklevel=1,
+    )
 fernet = Fernet(ENCRYPT_KEY.encode() if isinstance(ENCRYPT_KEY, str) else ENCRYPT_KEY)
 
 security = HTTPBearer()

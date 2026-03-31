@@ -121,7 +121,7 @@ export const getChart = (ticker: string, interval = "day", count = 30) =>
 export const getVersion = () => fetchJSON<{ version: string }>("/version");
 
 // Market (no auth needed for search/gainers)
-export const searchCoins = (q = "") => fetchJSON<{ ticker: string; name: string }[]>(`/market/coins?q=${q}`);
+export const searchCoins = (q = "") => fetchJSON<{ ticker: string; name: string }[]>(`/market/coins?q=${encodeURIComponent(q)}`);
 export const getTopGainers = (limit = 20) => fetchJSON<unknown[]>(`/market/top-gainers?limit=${limit}`);
 export const getTopVolume = (limit = 20) => fetchJSON<unknown[]>(`/market/top-volume?limit=${limit}`);
 export const getTopPrice = (limit = 20) => fetchJSON<unknown[]>(`/market/top-price?limit=${limit}`);

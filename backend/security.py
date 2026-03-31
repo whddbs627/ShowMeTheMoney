@@ -42,7 +42,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # 비어있는 키 정리 (메모리 누수 방지)
         if not self._requests[key]:
             del self._requests[key]
-            self._requests[key] = []
+            return await call_next(request)
 
         if len(self._requests[key]) >= limit:
             return JSONResponse(
