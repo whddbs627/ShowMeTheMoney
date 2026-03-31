@@ -3,18 +3,29 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from backend.app import app
-from backend.database import init_db
+import backend.database as db_mod
 import os
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def setup_db(tmp_path):
-    import backend.database as db_mod
-    db_mod.DB_PATH = tmp_path / "test.db"
-    await init_db()
+async def setup_db():
+    # 테스트용 DB/Redis 환경변수 (CI에서는 별도 설정 가능)
+    db_url = os.getenv("TEST_DATABASE_URL", "postgresql://smtm:smtm@localhost:5432/showmethemoney_test")
+    redis_url = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/1")
+    os.environ["DATABASE_URL"] = db_url
+    os.environ["REDIS_URL"] = redis_url
+
+    await db_mod.init_db()
     yield
-    if (tmp_path / "test.db").exists():
-        os.unlink(tmp_path / "test.db")
+
+    # 테스트 후 테이블 초기화
+    if db_mod.pool:
+        async with db_mod.pool.acquire() as conn:
+            for table in ["trades", "watchlist", "balance_snapshots", "demo_holdings", "coin_targets", "users"]:
+                await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+    if db_mod.redis_client:
+        await db_mod.redis_client.flushdb()
+    await db_mod.close_db()
 
 
 @pytest_asyncio.fixture

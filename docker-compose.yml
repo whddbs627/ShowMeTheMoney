@@ -1,11 +1,33 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: showmethemoney
+      POSTGRES_USER: smtm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smtm}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     env_file: .env
-    volumes:
-      - ./data:/app/data
+    environment:
+      DATABASE_URL: postgresql://smtm:${POSTGRES_PASSWORD:-smtm}@postgres:5432/showmethemoney
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
     restart: always
 
   frontend:
@@ -17,3 +39,6 @@ services:
     depends_on:
       - backend
     restart: always
+
+volumes:
+  pgdata:

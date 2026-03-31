@@ -1,413 +1,434 @@
-import aiosqlite
-from pathlib import Path
+import os
+import json
+import asyncpg
+import redis.asyncio as aioredis
 
-DB_PATH = Path(__file__).parent.parent / "data" / "trades.db"
+pool: asyncpg.Pool | None = None
+redis_client: aioredis.Redis | None = None
 
 
 async def init_db():
-    DB_PATH.parent.mkdir(exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
+    global pool, redis_client
+
+    database_url = os.getenv("DATABASE_URL", "postgresql://smtm:smtm@localhost:5432/showmethemoney")
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+    pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10)
+    redis_client = aioredis.from_url(redis_url, decode_responses=True)
+
+    async with pool.acquire() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                username        TEXT UNIQUE NOT NULL,
+                id              SERIAL PRIMARY KEY,
+                username        VARCHAR(100) UNIQUE NOT NULL,
                 password_hash   TEXT NOT NULL,
                 encrypted_access_key TEXT,
                 encrypted_secret_key TEXT,
                 discord_webhook_url  TEXT DEFAULT '',
-                strategy_k      REAL DEFAULT 0.5,
+                strategy_k      DOUBLE PRECISION DEFAULT 0.5,
                 strategy_ma     INTEGER DEFAULT 1,
                 strategy_rsi    INTEGER DEFAULT 1,
-                strategy_rsi_lower REAL DEFAULT 30.0,
-                strategy_loss_pct  REAL DEFAULT 0.03,
-                max_investment_krw REAL DEFAULT 100000,
-                min_investment_krw REAL DEFAULT 5000,
-                created_at      TEXT DEFAULT (datetime('now'))
+                strategy_rsi_lower DOUBLE PRECISION DEFAULT 30.0,
+                strategy_loss_pct  DOUBLE PRECISION DEFAULT 0.03,
+                max_investment_krw DOUBLE PRECISION DEFAULT 100000,
+                min_investment_krw DOUBLE PRECISION DEFAULT 5000,
+                notify_buy      INTEGER DEFAULT 1,
+                notify_sell     INTEGER DEFAULT 1,
+                notify_error    INTEGER DEFAULT 1,
+                notify_start_stop INTEGER DEFAULT 1,
+                take_profit_pct DOUBLE PRECISION DEFAULT 0.05,
+                strategy_type   TEXT DEFAULT 'volatility_breakout',
+                is_demo         INTEGER DEFAULT 0,
+                demo_balance    DOUBLE PRECISION DEFAULT 10000000,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
-        # Migrations
-        for col, default in [
-            ("min_investment_krw", "REAL DEFAULT 5000"),
+        # Migrations for existing installations
+        migrations = [
+            ("min_investment_krw", "DOUBLE PRECISION DEFAULT 5000"),
             ("notify_buy", "INTEGER DEFAULT 1"),
             ("notify_sell", "INTEGER DEFAULT 1"),
             ("notify_error", "INTEGER DEFAULT 1"),
             ("notify_start_stop", "INTEGER DEFAULT 1"),
-            ("take_profit_pct", "REAL DEFAULT 0.05"),
+            ("take_profit_pct", "DOUBLE PRECISION DEFAULT 0.05"),
             ("strategy_type", "TEXT DEFAULT 'volatility_breakout'"),
             ("is_demo", "INTEGER DEFAULT 0"),
-            ("demo_balance", "REAL DEFAULT 10000000"),
-        ]:
+            ("demo_balance", "DOUBLE PRECISION DEFAULT 10000000"),
+        ]
+        for col, typedef in migrations:
             try:
-                await db.execute(f"ALTER TABLE users ADD COLUMN {col} {default}")
-            except aiosqlite.OperationalError:
-                pass  # Column already exists
-        await db.execute("""
+                await conn.execute(f"ALTER TABLE users ADD COLUMN {col} {typedef}")
+            except asyncpg.exceptions.DuplicateColumnError:
+                pass
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS trades (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER NOT NULL REFERENCES users(id),
                 timestamp   TEXT NOT NULL,
                 side        TEXT NOT NULL,
                 ticker      TEXT NOT NULL,
-                price       REAL NOT NULL,
-                amount_krw  REAL NOT NULL,
-                volume      REAL DEFAULT 0,
+                price       DOUBLE PRECISION NOT NULL,
+                amount_krw  DOUBLE PRECISION NOT NULL,
+                volume      DOUBLE PRECISION DEFAULT 0,
                 reason      TEXT,
-                pnl_pct     REAL,
-                pnl_krw     REAL,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                pnl_pct     DOUBLE PRECISION,
+                pnl_krw     DOUBLE PRECISION
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS watchlist (
-                user_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id),
                 ticker  TEXT NOT NULL,
-                PRIMARY KEY (user_id, ticker),
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                PRIMARY KEY (user_id, ticker)
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS balance_snapshots (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER NOT NULL REFERENCES users(id),
                 timestamp   TEXT NOT NULL,
-                krw_balance REAL DEFAULT 0,
-                coin_value  REAL DEFAULT 0,
-                total_krw   REAL DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                krw_balance DOUBLE PRECISION DEFAULT 0,
+                coin_value  DOUBLE PRECISION DEFAULT 0,
+                total_krw   DOUBLE PRECISION DEFAULT 0
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS demo_holdings (
-                user_id     INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL REFERENCES users(id),
                 ticker      TEXT NOT NULL,
-                volume      REAL DEFAULT 0,
-                avg_price   REAL DEFAULT 0,
-                PRIMARY KEY (user_id, ticker),
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                volume      DOUBLE PRECISION DEFAULT 0,
+                avg_price   DOUBLE PRECISION DEFAULT 0,
+                PRIMARY KEY (user_id, ticker)
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS coin_targets (
-                user_id     INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL REFERENCES users(id),
                 ticker      TEXT NOT NULL,
-                buy_target  REAL,
-                stop_loss   REAL,
-                take_profit REAL,
-                PRIMARY KEY (user_id, ticker),
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                buy_target  DOUBLE PRECISION,
+                stop_loss   DOUBLE PRECISION,
+                take_profit DOUBLE PRECISION,
+                PRIMARY KEY (user_id, ticker)
             )
         """)
-        # Indexes for foreign keys and frequently queried columns
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(user_id, timestamp)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_balance_snapshots_user_id ON balance_snapshots(user_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_demo_holdings_user_id ON demo_holdings(user_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_coin_targets_user_id ON coin_targets(user_id)")
-        await db.commit()
+        # Indexes
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(user_id, timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_balance_snapshots_user_id ON balance_snapshots(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_demo_holdings_user_id ON demo_holdings(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_coin_targets_user_id ON coin_targets(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON watchlist(user_id)",
+        ]:
+            await conn.execute(stmt)
+
+
+async def close_db():
+    global pool, redis_client
+    if pool:
+        await pool.close()
+        pool = None
+    if redis_client:
+        await redis_client.close()
+        redis_client = None
+
+
+# === Bot State (Redis) ===
+async def save_bot_state(user_id: int, running: bool):
+    if redis_client:
+        await redis_client.hset("bot_state", str(user_id), "1" if running else "0")
+
+
+async def get_running_bot_ids() -> list[int]:
+    if not redis_client:
+        return []
+    data = await redis_client.hgetall("bot_state")
+    return [int(uid) for uid, val in data.items() if val == "1"]
 
 
 # === Users ===
 async def create_user(username: str, password_hash: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (username, password_hash),
+    async with pool.acquire() as conn:
+        row = await conn.fetchval(
+            "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id",
+            username, password_hash,
         )
-        await db.commit()
-        return cursor.lastrowid
+        return row
 
 
 async def get_user_by_username(username: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
-        row = await cursor.fetchone()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE username = $1", username)
         return dict(row) if row else None
 
 
 async def get_user_by_id(user_id: int) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-        row = await cursor.fetchone()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
         return dict(row) if row else None
 
 
 async def delete_user(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM trades WHERE user_id=?", (user_id,))
-        await db.execute("DELETE FROM watchlist WHERE user_id=?", (user_id,))
-        await db.execute("DELETE FROM balance_snapshots WHERE user_id=?", (user_id,))
-        await db.execute("DELETE FROM users WHERE id=?", (user_id,))
-        await db.commit()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM trades WHERE user_id=$1", user_id)
+            await conn.execute("DELETE FROM watchlist WHERE user_id=$1", user_id)
+            await conn.execute("DELETE FROM balance_snapshots WHERE user_id=$1", user_id)
+            await conn.execute("DELETE FROM demo_holdings WHERE user_id=$1", user_id)
+            await conn.execute("DELETE FROM coin_targets WHERE user_id=$1", user_id)
+            await conn.execute("DELETE FROM users WHERE id=$1", user_id)
+    if redis_client:
+        await redis_client.hdel("bot_state", str(user_id))
 
 
 async def update_user_password(user_id: int, password_hash: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
-        await db.commit()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2", password_hash, user_id)
 
 
 async def update_user_username(user_id: int, username: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET username=? WHERE id=?", (username, user_id))
-        await db.commit()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET username=$1 WHERE id=$2", username, user_id)
 
 
 async def update_user_keys(user_id: int, enc_access: str, enc_secret: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET encrypted_access_key=?, encrypted_secret_key=? WHERE id=?",
-            (enc_access, enc_secret, user_id),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET encrypted_access_key=$1, encrypted_secret_key=$2 WHERE id=$3",
+            enc_access, enc_secret, user_id,
         )
-        await db.commit()
 
 
 async def update_user_discord(user_id: int, webhook_url: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET discord_webhook_url=? WHERE id=?",
-            (webhook_url, user_id),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET discord_webhook_url=$1 WHERE id=$2",
+            webhook_url, user_id,
         )
-        await db.commit()
 
 
 async def update_user_strategy(user_id: int, strategy: dict):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """UPDATE users SET strategy_k=?, strategy_ma=?, strategy_rsi=?,
-               strategy_rsi_lower=?, strategy_loss_pct=?, max_investment_krw=?, min_investment_krw=?,
-               take_profit_pct=?, strategy_type=? WHERE id=?""",
-            (
-                strategy["k"], strategy["use_ma"], strategy["use_rsi"],
-                strategy["rsi_lower"], strategy["loss_pct"],
-                strategy.get("max_investment_krw", 100000),
-                strategy.get("min_investment_krw", 5000),
-                strategy.get("take_profit_pct", 0.05),
-                strategy.get("strategy_type", "volatility_breakout"),
-                user_id,
-            ),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE users SET strategy_k=$1, strategy_ma=$2, strategy_rsi=$3,
+               strategy_rsi_lower=$4, strategy_loss_pct=$5, max_investment_krw=$6, min_investment_krw=$7,
+               take_profit_pct=$8, strategy_type=$9 WHERE id=$10""",
+            strategy["k"], strategy["use_ma"], strategy["use_rsi"],
+            strategy["rsi_lower"], strategy["loss_pct"],
+            strategy.get("max_investment_krw", 100000),
+            strategy.get("min_investment_krw", 5000),
+            strategy.get("take_profit_pct", 0.05),
+            strategy.get("strategy_type", "volatility_breakout"),
+            user_id,
         )
-        await db.commit()
 
 
 async def update_user_notify_settings(user_id: int, buy: bool, sell: bool, error: bool, start_stop: bool):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET notify_buy=?, notify_sell=?, notify_error=?, notify_start_stop=? WHERE id=?",
-            (int(buy), int(sell), int(error), int(start_stop), user_id),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET notify_buy=$1, notify_sell=$2, notify_error=$3, notify_start_stop=$4 WHERE id=$5",
+            int(buy), int(sell), int(error), int(start_stop), user_id,
         )
-        await db.commit()
 
 
 # === Trades ===
 async def insert_trade(user_id: int, trade: dict):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+    async with pool.acquire() as conn:
+        await conn.execute(
             """INSERT INTO trades (user_id, timestamp, side, ticker, price, amount_krw, volume, reason, pnl_pct, pnl_krw)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                user_id,
-                trade["timestamp"], trade["side"], trade["ticker"],
-                trade["price"], trade["amount_krw"], trade.get("volume", 0),
-                trade.get("reason"), trade.get("pnl_pct"), trade.get("pnl_krw"),
-            ),
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+            user_id,
+            trade["timestamp"], trade["side"], trade["ticker"],
+            trade["price"], trade["amount_krw"], trade.get("volume", 0),
+            trade.get("reason"), trade.get("pnl_pct"), trade.get("pnl_krw"),
         )
-        await db.commit()
+    # Invalidate leaderboard cache on new trade
+    if redis_client:
+        await redis_client.delete("leaderboard_cache")
 
 
 async def get_trades(user_id: int, limit: int = 50, offset: int = 0) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM trades WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?",
-            (user_id, limit, offset),
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM trades WHERE user_id=$1 ORDER BY id DESC LIMIT $2 OFFSET $3",
+            user_id, limit, offset,
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
 
 async def get_cumulative_pnl(user_id: int) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
             """SELECT timestamp, pnl_krw,
                       SUM(COALESCE(pnl_krw, 0)) OVER (ORDER BY id) as cumulative_pnl_krw
-               FROM trades WHERE user_id=? AND side='SELL' ORDER BY id""",
-            (user_id,),
+               FROM trades WHERE user_id=$1 AND side='SELL' ORDER BY id""",
+            user_id,
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
 
 # === Balance Snapshots ===
 async def save_balance_snapshot(user_id: int, krw: float, coin_value: float, total: float):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+    async with pool.acquire() as conn:
+        await conn.execute(
             """INSERT INTO balance_snapshots (user_id, timestamp, krw_balance, coin_value, total_krw)
-               VALUES (?, datetime('now'), ?, ?, ?)""",
-            (user_id, krw, coin_value, total),
+               VALUES ($1, NOW()::TEXT, $2, $3, $4)""",
+            user_id, krw, coin_value, total,
         )
-        await db.commit()
 
 
 async def get_balance_history(user_id: int, limit: int = 100) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM balance_snapshots WHERE user_id=? ORDER BY id DESC LIMIT ?",
-            (user_id, limit),
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM balance_snapshots WHERE user_id=$1 ORDER BY id DESC LIMIT $2",
+            user_id, limit,
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
 
-# === Leaderboard ===
+# === Leaderboard (Redis-cached) ===
 async def get_leaderboard() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("""
+    # Check Redis cache first
+    if redis_client:
+        cached = await redis_client.get("leaderboard_cache")
+        if cached:
+            return json.loads(cached)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
             SELECT u.username,
-                   COUNT(t.id) as total_trades,
-                   SUM(CASE WHEN t.side='SELL' THEN COALESCE(t.pnl_krw, 0) ELSE 0 END) as total_pnl_krw,
-                   AVG(CASE WHEN t.side='SELL' THEN t.pnl_pct END) as avg_pnl_pct
+                   COUNT(t.id)::INTEGER as total_trades,
+                   COALESCE(SUM(CASE WHEN t.side='SELL' THEN COALESCE(t.pnl_krw, 0) ELSE 0 END), 0)::DOUBLE PRECISION as total_pnl_krw,
+                   AVG(CASE WHEN t.side='SELL' THEN t.pnl_pct END)::DOUBLE PRECISION as avg_pnl_pct
             FROM users u
             LEFT JOIN trades t ON u.id = t.user_id
-            GROUP BY u.id
-            HAVING total_trades > 0
-            ORDER BY total_pnl_krw DESC
+            GROUP BY u.id, u.username
+            HAVING COUNT(t.id) > 0
+            ORDER BY SUM(CASE WHEN t.side='SELL' THEN COALESCE(t.pnl_krw, 0) ELSE 0 END) DESC
         """)
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        result = [dict(row) for row in rows]
+
+    # Cache for 60 seconds
+    if redis_client:
+        await redis_client.setex("leaderboard_cache", 60, json.dumps(result, default=str))
+
+    return result
 
 
 # === Watchlist ===
 async def get_watchlist(user_id: int) -> list[str]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "SELECT ticker FROM watchlist WHERE user_id=? ORDER BY ticker", (user_id,)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT ticker FROM watchlist WHERE user_id=$1 ORDER BY ticker", user_id,
         )
-        rows = await cursor.fetchall()
-        return [row[0] for row in rows]
+        return [row["ticker"] for row in rows]
 
 
 async def add_to_watchlist(user_id: int, ticker: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO watchlist (user_id, ticker) VALUES (?, ?)",
-            (user_id, ticker),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO watchlist (user_id, ticker) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            user_id, ticker,
         )
-        await db.commit()
 
 
 async def remove_from_watchlist(user_id: int, ticker: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "DELETE FROM watchlist WHERE user_id=? AND ticker=?", (user_id, ticker)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM watchlist WHERE user_id=$1 AND ticker=$2", user_id, ticker,
         )
-        await db.commit()
 
 
 # === Demo Mode ===
 async def update_demo_mode(user_id: int, is_demo: bool, demo_balance: float):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET is_demo=?, demo_balance=? WHERE id=?",
-            (int(is_demo), demo_balance, user_id),
-        )
-        # 데모 모드 전환 시 보유 코인 초기화
-        if is_demo:
-            await db.execute("DELETE FROM demo_holdings WHERE user_id=?", (user_id,))
-        await db.commit()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE users SET is_demo=$1, demo_balance=$2 WHERE id=$3",
+                int(is_demo), demo_balance, user_id,
+            )
+            if is_demo:
+                await conn.execute("DELETE FROM demo_holdings WHERE user_id=$1", user_id)
 
 
 async def get_demo_holdings(user_id: int) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM demo_holdings WHERE user_id=?", (user_id,)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM demo_holdings WHERE user_id=$1", user_id,
         )
-        return [dict(row) for row in await cursor.fetchall()]
+        return [dict(row) for row in rows]
 
 
 async def demo_buy(user_id: int, ticker: str, price: float, amount_krw: float):
     volume = amount_krw / price
-    async with aiosqlite.connect(DB_PATH) as db:
-        # 잔고 차감
-        await db.execute(
-            "UPDATE users SET demo_balance = demo_balance - ? WHERE id=?",
-            (amount_krw, user_id),
-        )
-        # 기존 보유 확인
-        cursor = await db.execute(
-            "SELECT volume, avg_price FROM demo_holdings WHERE user_id=? AND ticker=?",
-            (user_id, ticker),
-        )
-        row = await cursor.fetchone()
-        if row:
-            old_vol, old_avg = row[0], row[1]
-            new_vol = old_vol + volume
-            new_avg = (old_vol * old_avg + volume * price) / new_vol
-            await db.execute(
-                "UPDATE demo_holdings SET volume=?, avg_price=? WHERE user_id=? AND ticker=?",
-                (new_vol, new_avg, user_id, ticker),
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE users SET demo_balance = demo_balance - $1 WHERE id=$2",
+                amount_krw, user_id,
             )
-        else:
-            await db.execute(
-                "INSERT INTO demo_holdings (user_id, ticker, volume, avg_price) VALUES (?,?,?,?)",
-                (user_id, ticker, volume, price),
+            row = await conn.fetchrow(
+                "SELECT volume, avg_price FROM demo_holdings WHERE user_id=$1 AND ticker=$2",
+                user_id, ticker,
             )
-        await db.commit()
+            if row:
+                old_vol, old_avg = row["volume"], row["avg_price"]
+                new_vol = old_vol + volume
+                new_avg = (old_vol * old_avg + volume * price) / new_vol
+                await conn.execute(
+                    "UPDATE demo_holdings SET volume=$1, avg_price=$2 WHERE user_id=$3 AND ticker=$4",
+                    new_vol, new_avg, user_id, ticker,
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO demo_holdings (user_id, ticker, volume, avg_price) VALUES ($1,$2,$3,$4)",
+                    user_id, ticker, volume, price,
+                )
 
 
 async def demo_sell(user_id: int, ticker: str, price: float) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "SELECT volume, avg_price FROM demo_holdings WHERE user_id=? AND ticker=?",
-            (user_id, ticker),
-        )
-        row = await cursor.fetchone()
-        if not row or row[0] <= 0:
-            return {"error": "보유량이 없습니다"}
-        volume, avg_price = row[0], row[1]
-        sell_amount = volume * price
-        pnl_pct = ((price - avg_price) / avg_price) * 100
-        # 잔고 증가
-        await db.execute(
-            "UPDATE users SET demo_balance = demo_balance + ? WHERE id=?",
-            (sell_amount, user_id),
-        )
-        await db.execute(
-            "DELETE FROM demo_holdings WHERE user_id=? AND ticker=?",
-            (user_id, ticker),
-        )
-        await db.commit()
-        return {"volume": volume, "avg_price": avg_price, "sell_amount": sell_amount, "pnl_pct": pnl_pct}
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT volume, avg_price FROM demo_holdings WHERE user_id=$1 AND ticker=$2",
+                user_id, ticker,
+            )
+            if not row or row["volume"] <= 0:
+                return {"error": "\uBCF4\uC720\uB7C9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"}
+            volume, avg_price = row["volume"], row["avg_price"]
+            sell_amount = volume * price
+            pnl_pct = ((price - avg_price) / avg_price) * 100
+            await conn.execute(
+                "UPDATE users SET demo_balance = demo_balance + $1 WHERE id=$2",
+                sell_amount, user_id,
+            )
+            await conn.execute(
+                "DELETE FROM demo_holdings WHERE user_id=$1 AND ticker=$2",
+                user_id, ticker,
+            )
+            return {"volume": volume, "avg_price": avg_price, "sell_amount": sell_amount, "pnl_pct": pnl_pct}
 
 
 # === Coin Targets ===
 async def get_coin_targets(user_id: int) -> dict[str, dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM coin_targets WHERE user_id=?", (user_id,)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM coin_targets WHERE user_id=$1", user_id,
         )
-        rows = await cursor.fetchall()
         return {r["ticker"]: dict(r) for r in rows}
 
 
 async def count_demo_users() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("SELECT COUNT(*) FROM users WHERE is_demo=1")
-        row = await cursor.fetchone()
-        return row[0] if row else 0
+    async with pool.acquire() as conn:
+        row = await conn.fetchval("SELECT COUNT(*) FROM users WHERE is_demo=1")
+        return row or 0
 
 
 async def set_coin_target(user_id: int, ticker: str, buy_target: float | None, stop_loss: float | None, take_profit: float | None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT OR REPLACE INTO coin_targets (user_id, ticker, buy_target, stop_loss, take_profit)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, ticker, buy_target, stop_loss, take_profit),
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO coin_targets (user_id, ticker, buy_target, stop_loss, take_profit)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (user_id, ticker) DO UPDATE SET buy_target=$3, stop_loss=$4, take_profit=$5""",
+            user_id, ticker, buy_target, stop_loss, take_profit,
         )
-        await db.commit()

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 SERVER_START_TIME = str(int(time.time()))
 
-from backend.database import init_db
+from backend.database import init_db, close_db, get_running_bot_ids, get_user_by_id
 from backend.engine import bot_manager
 from backend.security import RateLimitMiddleware, ErrorHandlerMiddleware
 from backend.routes import auth, bot, price, balance, trades, market, watchlist, leaderboard
@@ -28,26 +28,14 @@ async def lifespan(app: FastAPI):
     await _restore_bots()
     yield
     await bot_manager.stop_all()
+    await close_db()
 
 
 async def _restore_bots():
     """서버 재시작 시 이전 봇 상태 복원"""
-    import aiosqlite
-    from backend.database import DB_PATH, get_user_by_id
-
     _logger = logging.getLogger(__name__)
     try:
-        # bot_running 상태 테이블 확인
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS bot_state (
-                    user_id INTEGER PRIMARY KEY,
-                    running INTEGER DEFAULT 0
-                )
-            """)
-            await db.commit()
-            cursor = await db.execute("SELECT user_id FROM bot_state WHERE running=1")
-            running_ids = [r[0] for r in await cursor.fetchall()]
+        running_ids = await get_running_bot_ids()
 
         for uid in running_ids:
             user = await get_user_by_id(uid)
