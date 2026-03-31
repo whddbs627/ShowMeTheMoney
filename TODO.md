@@ -22,6 +22,11 @@
     - 캐시 공유: price API와 balance API가 같은 잔고 캐시 사용
 
 ## 기능 개선
+- [ ] 호가창(Orderbook) 조회
+  - Upbit orderbook API 연동
+  - 매수/매도 호가 실시간 표시
+  - 스프레드, 유동성 시각화
+  - 봇 전략에 호가 데이터 활용 (슬리피지 예측)
 - [ ] 코인별 매수목표/손절/익절 가격 직접 입력 (UI)
   - 백엔드 API는 구현 완료 (/api/targets)
   - 프론트 테이블에서 인라인 편집
@@ -44,8 +49,8 @@
   - Let's Encrypt로 무료 SSL 인증서 자동 발급
   - certbot + nginx 설정
   - EC2 보안그룹에 80/443 포트 추가
-- [ ] PostgreSQL 전환 (현재 SQLite)
-- [ ] Redis 캐시 (현재 인메모리)
+- [x] PostgreSQL 전환 (SQLite → asyncpg 커넥션 풀)
+- [x] Redis 캐시 (인메모리 → Redis 2단 캐시)
 - [ ] 서버 모니터링 (Uptime, 메모리, CPU)
 - [ ] 도메인 연결
 
